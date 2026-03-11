@@ -83,9 +83,12 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
                 {"is_push_configured": 1, "last_contact": datetime.now()},
                 update_modified=False,
             )
+            maybe_log(sn, "Handshake", "IN", f"Handshake SN={sn}")
+        else:
+            maybe_log(sn, "Handshake", "IN",
+                      f"Handshake from unregistered device SN={sn}", force=True)
 
         last_sync_id = frappe.db.get_value("Attendance Device", sn, "last_synced_id") or 0
-        maybe_log(sn, "Handshake", "IN", f"Handshake SN={sn}")
 
         body = (
             f"GET OPTION FROM: {sn}\n"
@@ -173,7 +176,8 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 
         if not _is_registered_device(sn):
             maybe_log(sn or "unknown", "Error", "IN",
-                      f"Data from unregistered device SN={sn} (table={table}) — ignored")
+                      f"Data from unregistered device SN={sn} (table={table}) — ignored",
+                      force=True)
             return self.text("OK")
 
         if table == "ATTLOG":

@@ -15,19 +15,27 @@ def maybe_log(
     summary: str,
     user_pin: str = None,
     raw_data: str = None,
+    force: bool = False,
 ) -> None:
-    """Insert an Attendance Device Log only if logging is enabled in settings.
-    Called from adapters — fails silently to never disrupt device communication.
+    """Insert an Attendance Device Log.
+
+    When force=True the log is written regardless of the enable_device_log setting
+    (used for unregistered-device events so admins can discover unknown serials).
+    Always fails silently to never disrupt device communication.
     """
     import frappe
     try:
-        enabled = frappe.db.get_single_value("Attendance Integration Settings", "enable_device_log")
-        if not enabled:
-            return
+        if not force:
+            enabled = frappe.db.get_single_value("Attendance Integration Settings", "enable_device_log")
+            if not enabled:
+                return
         from frappe.utils import now_datetime
+        # Only link to Attendance Device if the record actually exists
+        device_link = device_id if frappe.db.exists("Attendance Device", device_id) else None
         frappe.get_doc({
             "doctype": "Attendance Device Log",
-            "attendance_device": device_id,
+            "device_serial": device_id,
+            "attendance_device": device_link,
             "log_type": log_type,
             "direction": direction,
             "timestamp": now_datetime(),

@@ -134,7 +134,9 @@ def _handle_realtime_glog(payload: dict, ctx: dict) -> Reply:
         trans_id = ctx["trans_id"]
 
         if not _is_registered_device(dev_id):
-            maybe_log(dev_id, "Error", "IN", f"Attendance from unregistered device dev_id={dev_id} — ignored")
+            maybe_log(dev_id, "Error", "IN",
+                      f"Attendance from unregistered device dev_id={dev_id} — ignored",
+                      force=True)
             return _ok_bytes(), 200, _resp_headers(trans_id=trans_id)
 
         user_id = str(payload.get("user_id", "")).lstrip("0") or str(payload.get("user_id", ""))
@@ -227,7 +229,9 @@ def _handle_realtime_enroll(payload: dict, ctx: dict) -> Reply:
 
     try:
         if not _is_registered_device(dev_id):
-            maybe_log(dev_id, "Error", "IN", f"Enrollment from unregistered device dev_id={dev_id} — ignored")
+            maybe_log(dev_id, "Error", "IN",
+                      f"Enrollment from unregistered device dev_id={dev_id} — ignored",
+                      force=True)
             return _ok_bytes(), 200, _resp_headers(trans_id=trans_id)
         user_doc = get_or_create_user_by_pin(user_id)
         # Ensure device is in user's device list

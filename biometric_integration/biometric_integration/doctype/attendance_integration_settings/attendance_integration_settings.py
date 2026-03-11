@@ -5,7 +5,19 @@ from frappe.model.document import Document
 
 
 class AttendanceIntegrationSettings(Document):
-    pass
+    def on_update(self):
+        from biometric_integration.proxy.configurator import (
+            enable_listener_logic,
+            disable_listener_logic,
+        )
+        import frappe as _frappe
+        site = _frappe.local.site
+        if self.proxy_enabled:
+            ok, msg = enable_listener_logic(site, int(self.proxy_port or 8998))
+            if not ok:
+                _frappe.throw(msg)
+        else:
+            disable_listener_logic(site)
 
 
 def get_erp_employee_id(device_pin: str) -> str | None:

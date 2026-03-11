@@ -6,6 +6,7 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "device_serial",
   "attendance_device",
   "brand",
   "log_type",
@@ -19,12 +20,19 @@
  ],
  "fields": [
   {
+   "fieldname": "device_serial",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Serial / ID",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
    "fieldname": "attendance_device",
    "fieldtype": "Link",
-   "in_list_view": 1,
    "label": "Device",
    "options": "Attendance Device",
-   "reqd": 1,
    "search_index": 1
   },
   {

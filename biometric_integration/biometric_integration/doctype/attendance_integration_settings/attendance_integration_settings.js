@@ -12,25 +12,11 @@ frappe.ui.form.on("Attendance Integration Settings", {
 		if (frm.doc.proxy_enabled && !frm.doc.proxy_port) {
 			frm.set_value("proxy_port", 8998);
 		}
-		if (!frm.doc.proxy_enabled) {
-			_disable_proxy(frm);
-		}
-	},
-
-	proxy_port(frm) {
-		// Debounced: only apply if proxy is enabled and port has changed
-		if (frm.doc.proxy_enabled && frm.doc.proxy_port) {
-			clearTimeout(frm._proxy_port_timer);
-			frm._proxy_port_timer = setTimeout(() => _enable_proxy(frm), 1000);
-		}
 	},
 
 	after_save(frm) {
-		if (frm.doc.proxy_enabled) {
-			_enable_proxy(frm);
-		} else {
-			_disable_proxy(frm);
-		}
+		// Reload endpoint URLs so HTTP listener addresses appear/disappear
+		_load_endpoint_urls(frm);
 	},
 });
 
@@ -75,9 +61,8 @@ function _check_proxy_compatibility(frm) {
   <strong>Self-hosted server.</strong> You can configure the HTTP listener directly from this form.
 </div>`;
 				frm.toggle_display("proxy_enabled", true);
-				frm.toggle_display("proxy_port", frm.doc.proxy_enabled);
+				frm.toggle_display("proxy_port", !!frm.doc.proxy_enabled);
 				frm.toggle_display("generated_nginx_config", false);
-				_load_proxy_status(frm);
 
 			} else {
 				html = `
@@ -92,43 +77,6 @@ function _check_proxy_compatibility(frm) {
 
 			wrapper.html(html);
 		},
-	});
-}
-
-function _load_proxy_status(frm) {
-	frappe.call({
-		method: "biometric_integration.api.get_proxy_status",
-		callback(r) {
-			if (!r.message) return;
-			const status = r.message;
-			if (status.enabled) {
-				frm.set_value("proxy_enabled", 1);
-				frm.set_value("proxy_port", status.port);
-			}
-		},
-	});
-}
-
-function _enable_proxy(frm) {
-	if (!frm.doc.proxy_port) return;
-	frappe.call({
-		method: "biometric_integration.api.enable_proxy",
-		args: { port: frm.doc.proxy_port },
-		callback(r) {
-			if (r.message && !r.message.success) {
-				frappe.msgprint({
-					title: __("Proxy Error"),
-					message: r.message.message,
-					indicator: "red",
-				});
-			}
-		},
-	});
-}
-
-function _disable_proxy(frm) {
-	frappe.call({
-		method: "biometric_integration.api.disable_proxy",
 	});
 }
 

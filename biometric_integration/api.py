@@ -16,22 +16,50 @@ from frappe.utils import get_url
 def get_endpoint_urls() -> dict:
     """Return the server addresses devices should be configured with.
 
-    ZKTeco: device is configured with hostname + port only — firmware appends
-    /iclock/* paths automatically. Show host:port so user can copy it directly
-    into the device's "Server Address" field.
+    ZKTeco: device is configured with hostname only — firmware appends /iclock/*
+    paths automatically. EBKN: full URL including /ebkn path.
 
-    EBKN: full URL including /ebkn path (configured as the push server URL).
+    When the HTTP listener is active, plain-HTTP alternatives are shown.
+    A best-effort public IP lookup (api.ipify.org) adds a raw IP:port line.
     """
+    import urllib.request
     from urllib.parse import urlparse
+
     base = get_url().rstrip("/")
     parsed = urlparse(base)
-    default_port = 443 if parsed.scheme == "https" else 80
-    port = parsed.port or default_port
     host = parsed.hostname
-    zkteco_addr = f"{host}:{port}" if port not in (80, 443) else host
+
+    # HTTP listener port stored in site_config by configurator.py
+    listener_port = frappe.conf.get("biometric_listener_port")
+
+    # Best-effort public IP detection (only relevant when listener is active)
+    public_ip = None
+    if listener_port:
+        try:
+            with urllib.request.urlopen("https://api.ipify.org", timeout=3) as resp:
+                public_ip = resp.read().decode().strip() or None
+        except Exception:
+            pass
+        if public_ip == host:
+            public_ip = None  # redundant — skip
+
+    # --- ZKTeco: hostname only (firmware adds /iclock/* paths) ---
+    zkteco_lines = [host]
+    if listener_port:
+        zkteco_lines.append(f"{host}:{listener_port}")
+        if public_ip:
+            zkteco_lines.append(f"{public_ip}:{listener_port}")
+
+    # --- EBKN: full URL with /ebkn path ---
+    ebkn_lines = [f"{base}/ebkn"]
+    if listener_port:
+        ebkn_lines.append(f"http://{host}:{listener_port}/ebkn")
+        if public_ip:
+            ebkn_lines.append(f"http://{public_ip}:{listener_port}/ebkn")
+
     return {
-        "zkteco": zkteco_addr,
-        "ebkn": f"{base}/ebkn",
+        "zkteco": "\n".join(zkteco_lines),
+        "ebkn": "\n".join(ebkn_lines),
     }
 
 
