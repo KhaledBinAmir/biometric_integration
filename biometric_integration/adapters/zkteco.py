@@ -38,8 +38,11 @@ from biometric_integration.biometric_integration.doctype.attendance_device_user.
     save_enrollment_data,
 )
 from biometric_integration.biometric_integration.doctype.attendance_device_log.attendance_device_log import maybe_log
-from biometric_integration.biometric_integration.doctype.attendance_integration_settings.attendance_integration_settings import (
-    get_erp_employee_id,
+from biometric_integration.utils.device_cache import (
+    is_registered_device,
+    touch_device,
+    get_last_sync_id,
+    set_last_sync_id,
 )
 
 
@@ -78,19 +81,15 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         if not sn:
             return self.text("ERROR: SN is required.", 400)
 
-        if not frappe.db.exists("Attendance Device", sn):
+        if not is_registered_device(sn):
             maybe_log(sn, "Error", "IN",
                       f"Handshake from unregistered device SN={sn} — rejected", force=True)
             return self.text("ERROR: Device not registered.")
 
-        frappe.db.set_value(
-            "Attendance Device", sn,
-            {"is_push_configured": 1, "last_contact": datetime.now()},
-            update_modified=False,
-        )
+        touch_device(sn)
         maybe_log(sn, "Handshake", "IN", f"Handshake SN={sn}")
 
-        last_sync_id = frappe.db.get_value("Attendance Device", sn, "last_synced_id") or 0
+        last_sync_id = get_last_sync_id(sn)
 
         body = (
             f"GET OPTION FROM: {sn}\n"
@@ -115,12 +114,8 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
     def _handle_registry(self, args) -> Response:
         """Device sends capabilities on first connection. Respond with RegistryCode=0."""
         sn = args.get("SN") or args.get("sn")
-        if sn and frappe.db.exists("Attendance Device", sn):
-            frappe.db.set_value(
-                "Attendance Device", sn,
-                {"is_push_configured": 1, "last_contact": datetime.now()},
-                update_modified=False,
-            )
+        if sn and is_registered_device(sn):
+            touch_device(sn)
         maybe_log(sn or "unknown", "Handshake", "IN", f"Registry SN={sn}")
         return self.text("RegistryCode=0")
 
@@ -131,7 +126,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
     def _handle_push(self, args) -> Response:
         """Device downloads full config after registration. Return same params as handshake."""
         sn = args.get("SN") or args.get("sn")
-        last_sync_id = frappe.db.get_value("Attendance Device", sn, "last_synced_id") or 0 if sn else 0
+        last_sync_id = get_last_sync_id(sn) if sn else 0
         body = (
             f"ATTLOGStamp={last_sync_id}\n"
             "OPERLOGStamp=9999\n"
@@ -176,7 +171,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         table = args.get("table", "")
         body_str = self.raw_body.decode("utf-8", errors="ignore")
 
-        if not _is_registered_device(sn):
+        if not is_registered_device(sn):
             maybe_log(sn or "unknown", "Error", "IN",
                       f"Data from unregistered device SN={sn} (table={table}) — ignored",
                       force=True)
@@ -223,9 +218,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
                 )
 
         if latest_id > 0 and sn:
-            frappe.db.set_value(
-                "Attendance Device", sn, "last_synced_id", latest_id, update_modified=False
-            )
+            set_last_sync_id(sn, latest_id)
             frappe.db.commit()
 
         return self.text(f"OK: {processed}")
@@ -324,11 +317,6 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
-
-def _is_registered_device(sn: str) -> bool:
-    """Return True if SN exists in Attendance Device table."""
-    return bool(sn and frappe.db.exists("Attendance Device", sn))
-
 
 def _handle_operlog_user(sn: str, line: str) -> int:
     """Handle a USER or ENROLL_USER line from OPERLOG.

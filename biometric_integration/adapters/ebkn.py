@@ -42,10 +42,8 @@ from biometric_integration.services.command_processor import process_device_comm
 from biometric_integration.biometric_integration.doctype.attendance_device_user.attendance_device_user import (
     get_or_create_user_by_pin,
 )
-from biometric_integration.biometric_integration.doctype.attendance_integration_settings.attendance_integration_settings import (
-    get_erp_employee_id,
-)
 from biometric_integration.biometric_integration.doctype.attendance_device_log.attendance_device_log import maybe_log
+from biometric_integration.utils.device_cache import is_registered_device
 
 Reply = Tuple[bytes, int, Dict[str, str]]
 
@@ -133,7 +131,7 @@ def _handle_realtime_glog(payload: dict, ctx: dict) -> Reply:
         dev_id = ctx["dev_id"]
         trans_id = ctx["trans_id"]
 
-        if not _is_registered_device(dev_id):
+        if not is_registered_device(dev_id):
             maybe_log(dev_id, "Error", "IN",
                       f"Attendance from unregistered device dev_id={dev_id} — ignored",
                       force=True)
@@ -228,7 +226,7 @@ def _handle_realtime_enroll(payload: dict, ctx: dict) -> Reply:
     user_id = str(user_id_raw).lstrip("0") or str(user_id_raw)
 
     try:
-        if not _is_registered_device(dev_id):
+        if not is_registered_device(dev_id):
             maybe_log(dev_id, "Error", "IN",
                       f"Enrollment from unregistered device dev_id={dev_id} — ignored",
                       force=True)
@@ -420,11 +418,6 @@ def _format_cmd_body(raw: typing.Union[str, bytes, None]) -> bytes:
         payload = raw.encode("utf-8")
         return struct.pack("<I", len(payload) + 1) + payload + b"\x00"
     raise TypeError(f"Unsupported EBKN command body type: {type(raw)}")
-
-
-def _is_registered_device(dev_id: str) -> bool:
-    """Return True if dev_id exists in Attendance Device table."""
-    return bool(dev_id and frappe.db.exists("Attendance Device", dev_id))
 
 
 def _get_header(headers, *names: str) -> str | None:

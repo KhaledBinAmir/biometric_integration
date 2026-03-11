@@ -13,9 +13,7 @@ from datetime import datetime
 
 import frappe
 
-from biometric_integration.biometric_integration.doctype.attendance_integration_settings.attendance_integration_settings import (
-    get_erp_employee_id,
-)
+from biometric_integration.utils.device_cache import get_employee_by_pin
 
 
 def create_employee_checkin(
@@ -29,7 +27,7 @@ def create_employee_checkin(
     Returns True on success or a duplicate (idempotent), False on failure.
     """
     try:
-        employee_id = get_erp_employee_id(str(device_pin))
+        employee_id = get_employee_by_pin(str(device_pin))
 
         if not employee_id:
             settings = frappe.get_cached_doc("Attendance Integration Settings")
