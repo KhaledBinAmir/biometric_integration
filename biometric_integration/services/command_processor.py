@@ -96,10 +96,13 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
         blob = _load_blob(user_doc.zkteco_enroll_data)
         if not blob:
             raise FileNotFoundError(f"ZKTeco enroll data missing for user {user_doc.name}")
-        template_b64 = base64.b64encode(blob).decode()
+        enroll = json.loads(blob.decode("utf-8"))
+        fid = enroll.get("fid", 0)
+        size = enroll.get("size", 0)
+        tmp = enroll.get("tmp", "")
         return "\n".join([
             f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri=0\tPasswd=\tCard=0",
-            f"C:{cmd_id}:DATA UPDATE BIODATA\tPIN={pin}\tFID=0\tSize={len(blob)}\tValid=1\tTMP={template_b64}",
+            f"C:{cmd_id}:DATA UPDATE BIODATA\tPIN={pin}\tFID={fid}\tSize={size}\tValid=1\tTMP={tmp}",
         ])
     return None
 

@@ -23,6 +23,7 @@ Protocol flow:
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 
@@ -77,16 +78,17 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         if not sn:
             return self.text("ERROR: SN is required.", 400)
 
-        if frappe.db.exists("Attendance Device", sn):
-            frappe.db.set_value(
-                "Attendance Device", sn,
-                {"is_push_configured": 1, "last_contact": datetime.now()},
-                update_modified=False,
-            )
-            maybe_log(sn, "Handshake", "IN", f"Handshake SN={sn}")
-        else:
-            maybe_log(sn, "Handshake", "IN",
-                      f"Handshake from unregistered device SN={sn}", force=True)
+        if not frappe.db.exists("Attendance Device", sn):
+            maybe_log(sn, "Error", "IN",
+                      f"Handshake from unregistered device SN={sn} — rejected", force=True)
+            return self.text("ERROR: Device not registered.")
+
+        frappe.db.set_value(
+            "Attendance Device", sn,
+            {"is_push_configured": 1, "last_contact": datetime.now()},
+            update_modified=False,
+        )
+        maybe_log(sn, "Handshake", "IN", f"Handshake SN={sn}")
 
         last_sync_id = frappe.db.get_value("Attendance Device", sn, "last_synced_id") or 0
 
@@ -366,12 +368,14 @@ def _handle_operlog_fp(sn: str, line: str) -> int:
     Saves the template and propagates to other devices.
     Returns 1 on success, 0 on skip.
     """
-    m = re.search(r"FP\s+PIN=(\S+)\s+FID=(\d+)\s+Size=\d+\s+Valid=\d+\s+TMP=(\S+)", line)
+    m = re.search(r"FP\s+PIN=(\S+)\s+FID=(\d+)\s+Size=(\d+)\s+Valid=\d+\s+TMP=(\S+)", line)
     if not m:
         return 0
-    pin, fid, template = m.group(1), m.group(2), m.group(3)
+    pin, fid, size, template = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)
     user_doc = get_or_create_user_by_pin(pin)
-    save_enrollment_data(user_doc, "ZKTeco", sn, template.encode("utf-8"))
+    # Store as JSON to preserve FID and size for accurate command reconstruction
+    payload = json.dumps({"fid": fid, "size": size, "tmp": template}).encode("utf-8")
+    save_enrollment_data(user_doc, "ZKTeco", sn, payload)
     maybe_log(sn, "Enrollment", "IN", f"FP PIN={pin} FID={fid}", user_pin=pin)
     return 1
 
