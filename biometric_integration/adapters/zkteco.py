@@ -5,18 +5,27 @@
 ZKTeco ADMS (Attendance Device Management Service) adapter.
 
 Protocol flow:
-  GET  /iclock/cdata?SN=<serial>           → handshake / configuration
-  POST /iclock/cdata?SN=<serial>&table=ATTLOG   → attendance logs
-  POST /iclock/cdata?SN=<serial>&table=OPERLOG  → user / fingerprint data
-  GET  /iclock/getrequest?SN=<serial>      → device polls for pending commands
-  GET  /iclock/devicecmd?ID=<id>&Return=<code>  → device reports command result
-  GET  /iclock/ping|registry|edata         → health checks → "OK"
+  GET  /iclock/cdata?SN=<sn>                  → handshake / configuration response
+  POST /iclock/cdata?SN=<sn>&table=ATTLOG     → batch attendance logs (positional TSV)
+  POST /iclock/cdata?SN=<sn>&table=rtlog      → real-time attendance event (kv TSV)
+  POST /iclock/cdata?SN=<sn>&table=OPERLOG    → user / fingerprint data upload
+  POST /iclock/cdata?SN=<sn>&table=options    → device uploads its options (ack only)
+  POST /iclock/cdata?SN=<sn>&table=rtstate    → door/sensor status (ack only)
+  POST /iclock/registry?SN=<sn>               → device registers capabilities
+  POST /iclock/push?SN=<sn>                   → device requests config after registration
+  GET  /iclock/rtdata?SN=<sn>&type=time       → device requests server time
+  GET  /iclock/getrequest?SN=<sn>             → device polls for pending commands
+  POST /iclock/devicecmd?SN=<sn>              → device reports command results
+  GET  /iclock/ping?SN=<sn>                   → keepalive heartbeat
+  POST /iclock/exchange?SN=<sn>&type=...      → encryption key exchange (ack only)
+  GET  /iclock/querydata?SN=<sn>              → device uploads query response (ack only)
 """
 
 from __future__ import annotations
 
 import re
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 
 import frappe
 from werkzeug.wrappers import Response
@@ -43,7 +52,13 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             return self._handle_getrequest(args)
         if "/iclock/devicecmd" in path:
             return self._handle_devicecmd(args)
-        # ping, registry, edata — just acknowledge
+        if "/iclock/registry" in path:
+            return self._handle_registry(args)
+        if "/iclock/push" in path:
+            return self._handle_push(args)
+        if "/iclock/rtdata" in path:
+            return self._handle_rtdata(args)
+        # ping, exchange, querydata, edata, file — acknowledge only
         return self.text("OK")
 
     # ------------------------------------------------------------------
@@ -60,7 +75,6 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         if not sn:
             return self.text("ERROR: SN is required.", 400)
 
-        # Update device record on first contact
         if frappe.db.exists("Attendance Device", sn):
             frappe.db.set_value(
                 "Attendance Device", sn,
@@ -88,7 +102,65 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         return self.text(body)
 
     # ------------------------------------------------------------------
-    # Data upload
+    # Device registration  (POST /iclock/registry)
+    # ------------------------------------------------------------------
+
+    def _handle_registry(self, args) -> Response:
+        """Device sends capabilities on first connection. Respond with RegistryCode=0."""
+        sn = args.get("SN") or args.get("sn")
+        if sn and frappe.db.exists("Attendance Device", sn):
+            frappe.db.set_value(
+                "Attendance Device", sn,
+                {"is_push_configured": 1, "last_contact": datetime.now()},
+                update_modified=False,
+            )
+        maybe_log(sn or "unknown", "Handshake", "IN", f"Registry SN={sn}")
+        return self.text("RegistryCode=0")
+
+    # ------------------------------------------------------------------
+    # Config download  (POST /iclock/push)
+    # ------------------------------------------------------------------
+
+    def _handle_push(self, args) -> Response:
+        """Device downloads full config after registration. Return same params as handshake."""
+        sn = args.get("SN") or args.get("sn")
+        last_sync_id = frappe.db.get_value("Attendance Device", sn, "last_synced_id") or 0 if sn else 0
+        body = (
+            f"ATTLOGStamp={last_sync_id}\n"
+            "OPERLOGStamp=9999\n"
+            "ATTPHOTOStamp=None\n"
+            "ErrorDelay=30\n"
+            "Delay=10\n"
+            "TransTimes=00:00;14:05\n"
+            "TransInterval=1\n"
+            "TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP UserPic\n"
+            "TimeZone=6\n"
+            "Realtime=1\n"
+            "Encrypt=None\n"
+        )
+        return self.text(body)
+
+    # ------------------------------------------------------------------
+    # Server time  (GET /iclock/rtdata?type=time)
+    # ------------------------------------------------------------------
+
+    def _handle_rtdata(self, args) -> Response:
+        """Device requests server time for clock sync. Respond with Unix timestamp + TZ."""
+        rt_type = args.get("type", "")
+        if rt_type == "time":
+            # Unix timestamp in seconds
+            ts = int(time.time())
+            # Get server timezone offset (frappe uses system timezone)
+            try:
+                import frappe.utils
+                tz_offset = datetime.now(timezone.utc).astimezone().strftime("%z")  # e.g. +0600
+            except Exception:
+                tz_offset = "+0000"
+            return self.text(f"DateTime={ts},ServerTZ={tz_offset}")
+        return self.text("OK")
+
+    # ------------------------------------------------------------------
+    # Data upload  (POST /iclock/cdata)
     # ------------------------------------------------------------------
 
     def _upload(self, args) -> Response:
@@ -98,14 +170,18 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 
         if table == "ATTLOG":
             return self._process_attlog(sn, body_str)
+        if table == "rtlog":
+            return self._process_rtlog(sn, body_str)
         if table == "OPERLOG":
             if "USER" in body_str:
                 return self._process_user_data(sn, body_str)
             if "FP" in body_str:
                 return self._process_fingerprint_data(sn, body_str)
+        # options, rtstate, tabledata, etc. — acknowledge
         return self.text("OK")
 
     def _process_attlog(self, sn: str, body: str) -> Response:
+        """Batch attendance log upload. Format: PIN\tTIME\tSTATUS\tVERIFY\t...\tID"""
         lines = body.strip().split("\n")
         processed = 0
         latest_id = 0
@@ -143,6 +219,21 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 
         return self.text(f"OK: {processed}")
 
+    def _process_rtlog(self, sn: str, body: str) -> Response:
+        """Real-time attendance event. Format: time=X\tpin=Y\tcardno=Z\tevent=N\t..."""
+        data = _parse_kv_tsv(body.strip())
+        pin = data.get("pin") or data.get("PIN")
+        time_str = data.get("time") or data.get("Time")
+        if not pin or not time_str:
+            return self.text("OK")
+        try:
+            ts = datetime.strptime(time_str.strip(), "%Y-%m-%d %H:%M:%S")
+            create_employee_checkin(device_pin=pin, timestamp=ts, device_id=sn)
+            maybe_log(sn, "Attendance", "IN", f"RT PIN={pin} time={time_str}", user_pin=pin, raw_data=body)
+        except Exception as exc:
+            frappe.log_error(title="ZKTeco rtlog Parse Error", message=f"Body: {body!r}\n{exc}")
+        return self.text("OK")
+
     def _process_user_data(self, sn: str, body: str) -> Response:
         processed = 0
         for line in body.strip().split("\n"):
@@ -171,7 +262,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         return self.text(f"OK: {processed}")
 
     # ------------------------------------------------------------------
-    # Command polling
+    # Command polling  (GET /iclock/getrequest)
     # ------------------------------------------------------------------
 
     def _handle_getrequest(self, args) -> Response:
@@ -184,20 +275,18 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         return self.text(command_str or "OK")
 
     # ------------------------------------------------------------------
-    # Command result
+    # Command result  (POST /iclock/devicecmd)
     # ------------------------------------------------------------------
 
     def _handle_devicecmd(self, args) -> Response:
         body_str = self.raw_body.decode("utf-8", errors="ignore")
         for line in body_str.strip().split("\n"):
-            # device sends: ID=<num>&Return=<code>&CMD=...
             from urllib.parse import parse_qs
             params = parse_qs(line)
             cmd_id = (params.get("ID") or [None])[0]
             return_code = (params.get("Return") or [None])[0]
 
             if not cmd_id:
-                # Some devices embed params differently — try args
                 cmd_id = args.get("ID")
                 return_code = args.get("Return")
 
@@ -224,5 +313,15 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 # ------------------------------------------------------------------
 
 def _parse_kv(line: str) -> dict:
-    """Parse ZKTeco key=value line format."""
+    """Parse ZKTeco space-separated KEY=VALUE line (e.g. 'USER PIN=001 Name=John ...')."""
     return dict(re.findall(r"(\w+)=(\S+)", line))
+
+
+def _parse_kv_tsv(line: str) -> dict:
+    """Parse ZKTeco tab-separated key=value line (e.g. 'time=2024-01-01 09:00:00\tpin=1\t...')."""
+    result = {}
+    for part in line.split("\t"):
+        if "=" in part:
+            k, _, v = part.partition("=")
+            result[k.strip()] = v.strip()
+    return result
