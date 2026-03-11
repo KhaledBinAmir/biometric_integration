@@ -4,7 +4,7 @@
 from frappe.model.document import Document
 
 
-class AttendanceDeviceSettings(Document):
+class AttendanceIntegrationSettings(Document):
     pass
 
 

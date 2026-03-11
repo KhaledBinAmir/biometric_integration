@@ -42,7 +42,7 @@ def process_device_command(device_sn: str) -> Optional[Union[str, dict]]:
 
 def force_close_stale_commands() -> None:
     """Scheduled daily task: mark old uncompleted commands as Failed."""
-    settings = frappe.get_cached_doc("Attendance Device Settings")
+    settings = frappe.get_cached_doc("Attendance Integration Settings")
     days = cint(settings.force_close_after_days) or 30
     cutoff = frappe.utils.add_to_date(now_datetime(), days=-days)
 
@@ -149,7 +149,7 @@ def _handle_build_failure(cmd_doc: Any, exc: Exception) -> None:
         cmd_doc.device_response = (
             f"{cmd_doc.device_response}\n{line}" if cmd_doc.device_response else line
         )
-        settings = frappe.get_cached_doc("Attendance Device Settings")
+        settings = frappe.get_cached_doc("Attendance Integration Settings")
         max_att = cint(settings.maximum_command_attempts) or 3
         if cmd_doc.no_of_attempts >= max_att:
             cmd_doc.status = "Failed"

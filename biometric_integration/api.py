@@ -14,10 +14,23 @@ from frappe.utils import get_url
 
 @frappe.whitelist()
 def get_endpoint_urls() -> dict:
-    """Return the URLs devices should be configured to use."""
+    """Return the server addresses devices should be configured with.
+
+    ZKTeco: device is configured with hostname + port only — firmware appends
+    /iclock/* paths automatically. Show host:port so user can copy it directly
+    into the device's "Server Address" field.
+
+    EBKN: full URL including /ebkn path (configured as the push server URL).
+    """
+    from urllib.parse import urlparse
     base = get_url().rstrip("/")
+    parsed = urlparse(base)
+    default_port = 443 if parsed.scheme == "https" else 80
+    port = parsed.port or default_port
+    host = parsed.hostname
+    zkteco_addr = f"{host}:{port}" if port not in (80, 443) else host
     return {
-        "zkteco": f"{base}/iclock/cdata",
+        "zkteco": zkteco_addr,
         "ebkn": f"{base}/ebkn",
     }
 

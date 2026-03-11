@@ -37,7 +37,7 @@ from biometric_integration.biometric_integration.doctype.attendance_device_user.
     save_enrollment_data,
 )
 from biometric_integration.biometric_integration.doctype.attendance_device_log.attendance_device_log import maybe_log
-from biometric_integration.biometric_integration.doctype.attendance_device_settings.attendance_device_settings import (
+from biometric_integration.biometric_integration.doctype.attendance_integration_settings.attendance_integration_settings import (
     get_erp_employee_id,
 )
 

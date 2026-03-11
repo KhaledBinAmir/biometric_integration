@@ -9,7 +9,7 @@ v1 doctypes (old names):
   Biometric Device User        → Attendance Device User
   Biometric Device User Detail → Attendance Device Link (child)
   Biometric Device Command     → Attendance Device Command
-  Biometric Integration Settings → Attendance Device Settings
+  Biometric Integration Settings → Attendance Integration Settings
 
 Run only once via patches.txt.
 Old doctypes are NOT deleted — validate migration, then clean up manually.
@@ -99,13 +99,13 @@ def _migrate_settings():
         return
     try:
         old = frappe.get_single("Biometric Integration Settings")
-        settings = frappe.get_single("Attendance Device Settings")
+        settings = frappe.get_single("Attendance Integration Settings")
         settings.maximum_command_attempts = old.get("maximum_no_of_attempts_for_commands") or 3
         settings.force_close_after_days = old.get("force_close_after") or 30
         settings.do_not_skip_unknown_employee_checkin = old.get("do_not_skip_unknown_employee_checkin", 0)
         settings.save(ignore_permissions=True)
     except Exception:
         frappe.log_error(
-            title="v2 Migration: Attendance Device Settings failed",
+            title="v2 Migration: Attendance Integration Settings failed",
             message=frappe.get_traceback(),
         )

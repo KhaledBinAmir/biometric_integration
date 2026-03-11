@@ -1,7 +1,7 @@
 // Copyright (c) 2026, Khaled Bin Amir
 // SPDX-License-Identifier: MIT
 
-frappe.ui.form.on("Attendance Device Settings", {
+frappe.ui.form.on("Attendance Integration Settings", {
 	refresh(frm) {
 		_load_endpoint_urls(frm);
 		_check_proxy_compatibility(frm);

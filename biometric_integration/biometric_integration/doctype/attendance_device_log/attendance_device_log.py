@@ -21,7 +21,7 @@ def maybe_log(
     """
     import frappe
     try:
-        enabled = frappe.db.get_single_value("Attendance Device Settings", "enable_device_log")
+        enabled = frappe.db.get_single_value("Attendance Integration Settings", "enable_device_log")
         if not enabled:
             return
         from frappe.utils import now_datetime

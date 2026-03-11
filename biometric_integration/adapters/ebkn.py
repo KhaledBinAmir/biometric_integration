@@ -42,7 +42,7 @@ from biometric_integration.services.command_processor import process_device_comm
 from biometric_integration.biometric_integration.doctype.attendance_device_user.attendance_device_user import (
     get_or_create_user_by_pin,
 )
-from biometric_integration.biometric_integration.doctype.attendance_device_settings.attendance_device_settings import (
+from biometric_integration.biometric_integration.doctype.attendance_integration_settings.attendance_integration_settings import (
     get_erp_employee_id,
 )
 from biometric_integration.biometric_integration.doctype.attendance_device_log.attendance_device_log import maybe_log

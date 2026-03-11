@@ -22,7 +22,7 @@ class AttendanceDeviceCommand(Document):
         """Auto-close commands that exceed max attempts or age limit."""
         try:
             settings = frappe.db.get_value(
-                "Attendance Device Settings", None,
+                "Attendance Integration Settings", None,
                 ["maximum_command_attempts", "force_close_after_days"],
                 as_dict=True,
             ) or {}

@@ -13,7 +13,7 @@ from datetime import datetime
 
 import frappe
 
-from biometric_integration.biometric_integration.doctype.attendance_device_settings.attendance_device_settings import (
+from biometric_integration.biometric_integration.doctype.attendance_integration_settings.attendance_integration_settings import (
     get_erp_employee_id,
 )
 
@@ -32,7 +32,7 @@ def create_employee_checkin(
         employee_id = get_erp_employee_id(str(device_pin))
 
         if not employee_id:
-            settings = frappe.get_cached_doc("Attendance Device Settings")
+            settings = frappe.get_cached_doc("Attendance Integration Settings")
             if not settings.do_not_skip_unknown_employee_checkin:
                 return False
             # Proceed with blank employee if setting allows it
