@@ -101,15 +101,15 @@
    "default": "0",
    "fieldname": "proxy_enabled",
    "fieldtype": "Check",
-   "label": "Enable HTTP Listener",
-   "depends_on": "eval:frappe.proxy_compatible"
+   "hidden": 1,
+   "label": "Enable HTTP Listener"
   },
   {
    "default": "8998",
    "fieldname": "proxy_port",
    "fieldtype": "Int",
+   "hidden": 1,
    "label": "Listener Port",
-   "depends_on": "eval:doc.proxy_enabled && frappe.proxy_compatible",
    "non_negative": 1
   },
   {
@@ -119,6 +119,7 @@
   {
    "fieldname": "generated_nginx_config",
    "fieldtype": "Code",
+   "hidden": 1,
    "label": "Generated Nginx Config",
    "read_only": 1,
    "description": "Copy this configuration block and paste it into your Nginx config, then run: sudo service nginx reload"

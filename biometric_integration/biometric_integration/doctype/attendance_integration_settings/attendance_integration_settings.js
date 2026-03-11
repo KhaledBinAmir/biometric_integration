@@ -8,6 +8,7 @@ frappe.ui.form.on("Attendance Integration Settings", {
 	},
 
 	proxy_enabled(frm) {
+		frm.toggle_display("proxy_port", frm.doc.proxy_enabled);
 		if (frm.doc.proxy_enabled && !frm.doc.proxy_port) {
 			frm.set_value("proxy_port", 8998);
 		}
@@ -64,11 +65,8 @@ function _check_proxy_compatibility(frm) {
   and forwards to this server.<br><br>
   Copy the <strong>Generated Nginx Config</strong> below and paste it into your local Nginx server.
 </div>`;
-				frm.set_df_property("generated_nginx_config", "hidden", 0);
-				frm.set_df_property("proxy_enabled", "hidden", 1);
-				frm.set_df_property("proxy_port", "hidden", 1);
-				// Set the global flag so depends_on expressions work
-				frappe.proxy_compatible = false;
+				frm.toggle_display("generated_nginx_config", true);
+				frm.toggle_display(["proxy_enabled", "proxy_port"], false);
 				_load_generated_config(frm);
 
 			} else if (d.recommendation === "ui_configure") {
@@ -76,10 +74,9 @@ function _check_proxy_compatibility(frm) {
 <div class="alert alert-success mb-0">
   <strong>Self-hosted server.</strong> You can configure the HTTP listener directly from this form.
 </div>`;
-				frm.set_df_property("proxy_enabled", "hidden", 0);
-				frm.set_df_property("proxy_port", "hidden", 0);
-				frm.set_df_property("generated_nginx_config", "hidden", 1);
-				frappe.proxy_compatible = true;
+				frm.toggle_display("proxy_enabled", true);
+				frm.toggle_display("proxy_port", frm.doc.proxy_enabled);
+				frm.toggle_display("generated_nginx_config", false);
 				_load_proxy_status(frm);
 
 			} else {
@@ -88,10 +85,8 @@ function _check_proxy_compatibility(frm) {
   Nginx is not available or not writable on this server. Copy the <strong>Generated Nginx Config</strong>
   below and apply it manually.
 </div>`;
-				frm.set_df_property("generated_nginx_config", "hidden", 0);
-				frm.set_df_property("proxy_enabled", "hidden", 1);
-				frm.set_df_property("proxy_port", "hidden", 1);
-				frappe.proxy_compatible = false;
+				frm.toggle_display("generated_nginx_config", true);
+				frm.toggle_display(["proxy_enabled", "proxy_port"], false);
 				_load_generated_config(frm);
 			}
 
