@@ -24,7 +24,6 @@ Protocol flow:
 from __future__ import annotations
 
 import re
-import time
 from datetime import datetime, timezone
 
 import frappe
@@ -145,18 +144,19 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
     # ------------------------------------------------------------------
 
     def _handle_rtdata(self, args) -> Response:
-        """Device requests server time for clock sync. Respond with Unix timestamp + TZ."""
+        """Device requests server time for clock sync.
+
+        DateTime must be UTC encoded with ZKTeco's custom formula (Appendix 5):
+          tt = ((year-2000)*12*31 + (mon-1)*31 + day-1) * 86400 + (hour*60+min)*60 + sec
+
+        ServerTZ is the server's local timezone offset in ±HHMM format.
+        """
         rt_type = args.get("type", "")
         if rt_type == "time":
-            # Unix timestamp in seconds
-            ts = int(time.time())
-            # Get server timezone offset (frappe uses system timezone)
-            try:
-                import frappe.utils
-                tz_offset = datetime.now(timezone.utc).astimezone().strftime("%z")  # e.g. +0600
-            except Exception:
-                tz_offset = "+0000"
-            return self.text(f"DateTime={ts},ServerTZ={tz_offset}")
+            now_utc = datetime.now(timezone.utc)
+            dt = _zkteco_encode_time(now_utc)
+            tz_offset = _get_frappe_tz_offset()
+            return self.text(f"DateTime={dt},ServerTZ={tz_offset}")
         return self.text("OK")
 
     # ------------------------------------------------------------------
@@ -315,6 +315,33 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 def _parse_kv(line: str) -> dict:
     """Parse ZKTeco space-separated KEY=VALUE line (e.g. 'USER PIN=001 Name=John ...')."""
     return dict(re.findall(r"(\w+)=(\S+)", line))
+
+
+def _zkteco_encode_time(dt: datetime) -> int:
+    """Encode a datetime to ZKTeco's custom seconds format (Appendix 5).
+
+    Formula: tt = ((year-2000)*12*31 + (mon-1)*31 + day-1) * 86400
+                  + (hour*60 + min)*60 + sec
+    Input must be UTC (the spec says DateTime is GMT).
+    """
+    y, mo, d, h, mi, s = dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
+    return ((y - 2000) * 12 * 31 + (mo - 1) * 31 + d - 1) * 86400 + (h * 60 + mi) * 60 + s
+
+
+def _get_frappe_tz_offset() -> str:
+    """Return the Frappe system timezone as ±HHMM (e.g. '+0600').
+
+    Uses frappe.utils.now_datetime() which already returns the current time
+    in the site's configured timezone (System Settings → time_zone).
+    Falls back to '+0000' on any error.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        tz_name = frappe.utils.get_time_zone()
+        now_local = datetime.now(ZoneInfo(tz_name))
+        return now_local.strftime("%z")  # e.g. "+0600"
+    except Exception:
+        return "+0000"
 
 
 def _parse_kv_tsv(line: str) -> dict:
