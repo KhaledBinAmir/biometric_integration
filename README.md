@@ -1,130 +1,188 @@
-# Biometric Integration for Frappe
+<div align="center">
 
-A Frappe app for seamless integration with popular biometric attendance and access control devices. This app provides a robust, centralized architecture to handle real-time data from multiple device brands, including EBKN and ZKTeco.
+# Biometric Integration for Frappe / ERPNext
 
-## Project Status
+**Real-time biometric attendance — ZKTeco & EBKN — wired directly into ERPNext. No middleware. No polling. No separate service.**
 
-* **EBKN Integration:** ✅ Stable and fully functional. Supports real-time attendance logs and command processing.
-* **ZKTeco Integration:** 🚧 In active development. The core logic for handling the ADMS Push Protocol is in place but requires further testing.
-* **Suprema Integration:** planned.
+[![Frappe v15](https://img.shields.io/badge/Frappe-v15-blue?style=flat-square)](https://frappeframework.com)
+[![ERPNext v15](https://img.shields.io/badge/ERPNext-v15-brightgreen?style=flat-square)](https://erpnext.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
-## Key Features
+</div>
 
-* **Multi-Brand Architecture:** A single, unified API endpoint handles requests from different device brands, routing them to brand-specific processors.
-* **Real-Time Push Protocol Support:** Leverages a custom Nginx reverse proxy to listen for real-time data pushed from devices, eliminating the need for periodic polling.
-* **Centralized Command & Control:** Queue up commands (e.g., "Enroll User," "Delete User") within Frappe, and the app will deliver them to the correct device when it next checks in.
-* **Multi-Device User Sync:** Enroll a user on one device, and their biometric data (e.g., fingerprint template) can be automatically synchronized to all other devices they are assigned to.
-* **Automated Setup:** Includes a custom `bench` command to automatically configure the required Nginx listener, simplifying the initial setup.
+---
 
-## How It Works (Architecture)
+## Overview
 
-This app avoids the need for a separate, constantly running Python service. Instead, it uses a clever Nginx reverse proxy setup.
+The **Biometric Integration** app connects ZKTeco and EBKN biometric attendance devices directly to your ERPNext instance. Punches create Employee Checkin records in real time. Enrollment is captured automatically. Employee status changes (left, inactive) propagate delete commands back to every assigned device — all without a single line of manual intervention after initial setup.
 
-1.  A custom `bench` command adds a `server` block to your `nginx.conf`.
-2.  This block listens on a dedicated port (e.g., 8998) for all incoming device communication.
-3.  Nginx proxies all requests from this port to a single, guest-allowed Frappe API endpoint: `biometric_integration.api.handle_request`.
-4.  This central API endpoint inspects the request and routes it to the appropriate brand processor (`ebkn_processor.py` or `zkteco_processor.py`), which then handles the specific protocol logic.
+---
+
+## Device Support
+
+| Brand | Protocol | Attendance | Enrollment Sync | Commands | Status |
+|-------|----------|:----------:|:---------------:|:--------:|--------|
+| **ZKTeco** | ADMS Push (`iclock`) | ✅ | ✅ | ✅ | **Stable** |
+| **EBKN** | FkWeb Push | ✅ | ✅ | ✅ | **Stable** |
+| Suprema | — | — | — | — | Planned |
+
+> ZKTeco devices must support the **ADMS / Cloud Server** push mode. Most mid-range and enterprise ZKTeco models support this.
+
+---
+
+## How It Works
+
+Device traffic is handled via Frappe's `page_renderer` hook. Requests to `/iclock/*` (ZKTeco) and `/ebkn` (EBKN) are intercepted at the WSGI layer before any template or page lookup — no Nginx rewrite rules, no `X-Original-Request-URI` header tricks, no separate listener process.
 
 ```
-+-----------------+      +---------------------------+      +--------------------------+      +----------------------+
-| Biometric Device|----->| Nginx Reverse Proxy       |----->| Frappe API Endpoint      |----->|  Brand-Specific      |
-| (EBKN / ZKTeco) |      | (e.g., your_domain:8998)   |      | (handle_request)         |      |  Processor           |
-+-----------------+      +---------------------------+      +--------------------------+      +----------------------+
+┌─────────────────────┐
+│   Biometric Device  │
+│  (ZKTeco / EBKN)    │
+└────────┬────────────┘
+         │  HTTP push (real-time)
+         ▼
+┌─────────────────────────────────────┐
+│      Frappe WSGI  (page_renderer)   │
+│                                     │
+│  /iclock/*  ──►  ZKTecoAdapter      │
+│  /ebkn      ──►  EBKNAdapter        │
+└────────┬──────────────┬─────────────┘
+         │              │
+         ▼              ▼
+  Employee Checkin   Attendance Device
+  (ERPNext HRMS)     Command Queue
 ```
+
+**Frappe Cloud / HTTPS-only servers:** Biometric devices speak plain HTTP. If your server is HTTPS-only, the app generates a ready-to-use Nginx server block you paste into a local proxy on your network — or on self-hosted servers it injects and activates the config automatically from the Settings UI.
+
+---
+
+## Features
+
+### Attendance
+- Punch data pushed by devices is immediately converted to **Employee Checkin** records in ERPNext
+- Supports both batch upload (`ATTLOG`) and real-time push (`rtlog` / `realtime_glog`)
+- Duplicate-safe: ERPNext's own deduplication logic applies
+
+### Enrollment & User Sync
+- When a user enrolls on any device, an **Attendance Device User** record is created automatically, capturing the PIN and biometric template
+- Templates are propagated to all other devices the user is assigned to — enroll once, sync everywhere
+- Matched to an ERPNext Employee automatically via the `attendance_device_id` field (standard ERPNext HRMS field)
+
+### Employee Lifecycle
+- **Employee goes Inactive / Left** → `Delete User` commands are queued for every assigned device
+- **Employee reactivated** → `Enroll User` commands re-push the stored template back to all devices
+- **Employee name changes** → `Update User` synced to ZKTeco devices
+
+### Command Queue
+Commands are delivered to devices the next time they poll (`/iclock/getrequest` or `receive_cmd`):
+
+| Command | Purpose |
+|---------|---------|
+| Enroll User | Push stored biometric template to device |
+| Delete User | Remove user from device |
+| Get Enroll Data | Fetch template from device (EBKN) |
+| Update User | Sync updated name/info to device (ZKTeco) |
+
+### Device Discovery
+Unknown devices that connect are **always logged** — even with device logging disabled — so you can find the serial number and register the device without hunting through server logs.
+
+### HTTP Listener
+- **Self-hosted:** Enable from the Settings UI. The app injects an Nginx server block and reloads Nginx automatically.
+- **Frappe Cloud / manual:** A ready-to-paste Nginx config block is generated in Settings. Drop it into a local Nginx on your network.
+- When the listener is active, the Settings page shows all available addresses: HTTPS URL, plain-HTTP URL, and detected public IP — ready to copy into device config.
+
+### Audit Log
+An optional **Attendance Device Log** captures all device communication — attendance events, commands, enrollment, handshakes, and errors — with raw data. Controlled by a single checkbox in Settings; disabled by default to avoid DB bloat. Auto-purges after 30 days.
+
+---
 
 ## Installation
 
-1.  Go to your bench directory:
-    ```bash
-    cd /path/to/your/frappe-bench
-    ```
-
-2.  Get the app from GitHub:
-    ```bash
-    bench get-app [https://github.com/KhaledBinAmir/biometric_integration](https://github.com/KhaledBinAmir/biometric_integration)
-    ```
-
-3.  Install the app on your site:
-    ```bash
-    bench --site your_site_name.local install-app biometric_integration
-    ```
-
-## Setup and Configuration
-
-Follow these steps to get the system up and running.
-
-### Step 1: Enable the Biometric Listener
-
-This is a one-time setup step that configures Nginx. Choose a port that is not currently in use (e.g., 8998, 8008, etc.).
-
-From your `frappe-bench` directory, run the following command:
-
 ```bash
-bench biometric-listener enable --port 8998
+cd /path/to/frappe-bench
+
+# Get the app (v2 branch)
+bench get-app https://github.com/KhaledBinAmir/biometric_integration --branch v2
+
+# Install on your site
+bench --site your-site.com install-app biometric_integration
+bench --site your-site.com migrate
 ```
 
-This command will automatically add the required server block to your Nginx configuration and reload Nginx to apply the changes.
+---
 
-### Step 2: Check Listener Status
+## Setup
 
-To confirm the listener is active and to find the URL for your devices, run:
+### 1. Open Attendance Integration Settings
 
-```bash
-bench biometric-listener --status
-```
+Navigate to **Biometric Integration → Attendance Integration Settings**.
 
-The output will show you the IP address and port that the system is listening on. This is the address you will configure your physical devices to point to.
+The **Device Endpoint URLs** section shows exactly what to enter on the physical device. When the HTTP listener is active, plain-HTTP addresses (including the server's public IP) appear automatically.
 
-**Example Output:**
-```json
-{
-    "status": "enabled",
-    "listening_ip": "0.0.0.0 (All Interfaces)",
-    "port": 8998,
-    "paths": {
-        "ebkn": "http://your_public_ip:8998/ebkn",
-        "zkteco": "http://your_public_ip:8998"
-    }
-}
-```
+### 2. Register each device
 
-### Step 3: Configure Devices in Frappe
+Go to **Biometric Integration → Attendance Device** → New:
 
-1.  In your Frappe desk, go to the **Biometric Device** doctype.
-2.  Create a new document for each physical device you want to connect.
-3.  Enter the **Serial No** (this must match the Serial Number or Device ID from the physical device).
-4.  Select the correct **Brand** (EBKN or ZKTeco).
-5.  Save the document.
+| Field | Description |
+|-------|-------------|
+| **Serial** | Must match the Serial Number shown in the device's ADMS / network settings |
+| **Device Name** | Friendly label |
+| **Brand** | ZKTeco or EBKN |
 
-### Step 4: Configure the Physical Device
+### 3. Configure the physical device
 
-On your actual biometric hardware, navigate to the communication or network settings. You must configure the device to send data to the server address and port provided by the `status` command in Step 2.
+| Brand | Where to configure | What to enter |
+|-------|--------------------|---------------|
+| ZKTeco | ADMS / Cloud Server settings | Hostname only (e.g. `yoursite.com`) — firmware appends `/iclock/*` automatically |
+| EBKN | Push server URL | Full URL with path (e.g. `https://yoursite.com/ebkn`) |
 
--   **For EBKN Devices:** Point the device to the full path, e.g., `http://your_public_ip:8998/ebkn`.
--   **For ZKTeco Devices:** Point the device to the base address, e.g., `your_public_ip:8998`. The device will automatically call paths like `/iclock/cdata`.
+Once the device connects, `Last Contact` updates on the device record and the device is ready.
 
-## Supported Devices & Status
+### 4. Map employees
 
-### EBKN
+When a user enrolls on a device, an **Attendance Device User** record is created automatically. Open it and link it to the matching ERPNext Employee.
 
--   **Status:** ✅ **Stable & Recommended**
--   **Features:**
-    -   Real-time attendance sync.
-    -   Full command processing (Enroll, Delete, Get Info).
-    -   Automatic user synchronization from ERP to device.
+**Tip:** Pre-fill the **Attendance Device ID** field on each Employee record (in ERPNext HR → Employee) with the device PIN. The app will link them automatically on first contact — no manual linking needed.
 
-### ZKTeco
+---
 
--   **Status:** 🚧 **In Development & Testing**
--   **Features:**
-    -   Handles initial device handshake.
-    -   Processes incoming attendance logs.
-    -   Receives user enrollment data (fingerprints).
-    -   Can send commands to devices.
--   **Important:** This integration requires ZKTeco devices that support the **ADMS (Push SDK) protocol**. This feature allows the device to "push" data to a server in real-time. If your device menu does not have an ADMS or "Cloud Server" setting, it may not be compatible out-of-the-box. Assistance may be available to enable this feature on certain models.
+## Doctypes
 
-## Support and Contribution
+| Doctype | Purpose |
+|---------|---------|
+| **Attendance Device** | One record per physical device. Tracks last contact, sync watermark, and pending commands. |
+| **Attendance Device User** | Maps a device PIN ↔ ERPNext Employee. Stores biometric templates for ZKTeco and EBKN. |
+| **Attendance Device Link** | Child table on Attendance Device User — lists which devices a user is enrolled on. |
+| **Attendance Device Command** | Pending command queue. Each record is delivered to the device and marked Success / Failed. |
+| **Attendance Device Log** | Audit log of all device communication. Unknown-device events always logged. |
+| **Attendance Integration Settings** | Global configuration (Single doctype). |
 
-This project is actively maintained. If you require assistance with setup, need to integrate a different brand of device, or would like to sponsor the development of new features, please feel free to get in touch.
+---
 
--   **Contact:** [t.me/khaledbinamir](https://t.me/khaledbinamir)
+## Discovering Unknown Devices
+
+Any device that contacts the server without a matching **Attendance Device** record is silently accepted (returns `OK` so the device doesn't disconnect) and its serial is written to **Attendance Device Log** with log type `Error`.
+
+To find it: open **Attendance Device Log**, filter **Device** = *(blank)*. The **Serial / ID** column shows the raw serial reported by the device. Copy it, create the matching Attendance Device, and the device is registered.
+
+---
+
+## Requirements
+
+- Frappe **v15** / ERPNext **v15** or later
+- Redis (standard Frappe requirement — used for EBKN multi-block buffering)
+- For the HTTP Listener: Nginx managed by bench (self-hosted only)
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
+## Contact & Support
+
+Maintained by **Khaled Bin Amir**.
+For setup help, device compatibility questions, or to sponsor new features: [t.me/khaledbinamir](https://t.me/khaledbinamir)
