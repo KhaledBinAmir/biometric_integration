@@ -1,0 +1,120 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:user_id",
+ "creation": "2026-03-12 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "user_id",
+  "employee",
+  "employee_name",
+  "column_break_1",
+  "allow_in_all_devices",
+  "section_devices",
+  "devices",
+  "section_enrollment",
+  "zkteco_enroll_data",
+  "column_break_2",
+  "ebkn_enroll_data"
+ ],
+ "fields": [
+  {
+   "fieldname": "user_id",
+   "fieldtype": "Data",
+   "label": "Device PIN / User ID",
+   "reqd": 1,
+   "unique": 1,
+   "description": "The employee ID as stored on the device (PIN for ZKTeco, user_id for EBKN)"
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Employee Name"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_in_all_devices",
+   "fieldtype": "Check",
+   "label": "Allow in All Devices",
+   "description": "If checked, this user is enrolled on all active devices of each brand"
+  },
+  {
+   "fieldname": "section_devices",
+   "fieldtype": "Section Break",
+   "label": "Device Access",
+   "depends_on": "eval:!doc.allow_in_all_devices"
+  },
+  {
+   "fieldname": "devices",
+   "fieldtype": "Table",
+   "label": "Allowed Devices",
+   "options": "Attendance Device Link",
+   "depends_on": "eval:!doc.allow_in_all_devices"
+  },
+  {
+   "fieldname": "section_enrollment",
+   "fieldtype": "Section Break",
+   "label": "Enrollment Data",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "zkteco_enroll_data",
+   "fieldtype": "Attach",
+   "label": "ZKTeco Template",
+   "description": "Private file containing the user's fingerprint template for ZKTeco devices"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ebkn_enroll_data",
+   "fieldtype": "Attach",
+   "label": "EBKN Template",
+   "description": "Private file containing the user's enrollment blob for EBKN devices"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-03-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "Attendance Device User",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "employee_name"
+}

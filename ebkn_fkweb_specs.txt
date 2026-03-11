@@ -1,0 +1,292 @@
+Communication Protocol Contents
+
+
+
+The nomenclature used in this document
+
+
+
+Base on the HTTP protocol and server to communication the machine.
+
+Machine used HTTP request in the POST way to send all the requests to the server. The responding part of this POST request HTTP contains binary data.
+
+The format of binary data in request and responding
+Following is the format of binary data.
+The binary data in the subsequent place and the string data in front of it.
+
+String data belongs to the one in the format of JSON with its code UTF-8.
+Actually,it can express all the data format by using JSON. However,JSOM may cause some problems, like the capacity of the whole data,speed of communication and so on. In this communication protocol, we do take advantage of binary to express data under the circumstance of using JSON with least adverse.
+the front string data will be signed when using the binary data, which is corresponding to the later one. Such as, if the type of a syllable is binary data, it will be instead by Bin_n.
+N is the serial no of later binary data. It starts from 1. For instance, “log_array”:BIN_1
+This JOSN string data instructions the recorded one belonging to binary data and put at the first place after the string data.
+
+Communicating process of machine and its server
+Communication with WEB server roughly divided into two kinds. One is the process that machine to receive and implement instruction instructions. The other is the process that machine notifies some events of server, such as the generation of a new record.
+The general process of operator instructions
+
+The process of operator instructions is that users choose the attendance machine needed to be managed by log in server. The server will distribute the instruction to attendance machine and accept the outcome of instructions. The process is as follow.
+
+Operators select attendance machine and get the machine number(device_id).
+Operator on the WEB sever linkage database maintain records of instruction executed on the machine. Those records include below messages.
+Task identification number(trans_id), Machine identification number(device_id) Order identification number(cmd_code) Directive parameter data(cmd_param)
+Task status(trans_status)
+Task status last updated time(trans_status_update_time)
+Machine will ask the server at regular intervals if there are some instructions for it. If yes, bring it to execute and upload the output to Web server.
+Operator will ask the executive status of service instruction at regular intervals. If there are executed identifications, they deal with the results.
+This trans_idis is the task identification number.Namely when returning the instruction execution result, use trans_id to judge which instruction this result corresponding to. Chart 2-1 is the process.
+
+
+
+P2-1.The communication process in the command processing.
+The command was send by the operator has been existence in the server
+The terminal will ask the server whether the sever send command to itself or not at regular intervals
+If there is a command for the terminal,it will reply
+After finish the command,the terminal will give notice to the server
+The server responds to the device about the result of the save instruction
+
+
+If the result is more than 10KB when the machine uploading instruction result, it may be uploaded in the way of having been divided into several parts.
+At this time, the machine will separate data into several blocks and then transmit. The server receives those blocks by order and stores in a temporary buffer.
+If the serial number of the last block, server received, is zero,it will joint the before receiving result together to the completed data and store at the database. Such process as shown in figure 2-2
+
+2-2. If the result data is large, it can be divided into several blocks and one block at a time
+
+Received instruction and execution process are similar to the format of HTTP request and response in most parts but there still exist some difference on instruction.
+Request and response needed for attendance machine to receive operators instructions Attendance machine will send HTTP request to WEB server at regular intervals and receive response in purpose of receiving instructions. Following is the format in details.
+
+
+Request for machine to receive operator instruction
+Attendance machine would send out signal to the server for instructions. HTTP POST request to WEB server at regular intervals.
+The following field will be put within the HTTP header.
+
+
+
+For example the below HTTP header is uploaded to the server from machine.
+
+
+The bold words in front was used to mark the field that shall be noted. The data described in 1.3 was placed in the portion of HTTP body.
+The content of string in body part is as below.
+{
+“fk_name”:<1>, “fk_time”:<2>, “fk_info”:
+{
+"supported_enroll_data":<3.1>, "fk_bin_data_lib":<3.2>, "firmware":<3.3>
+}
+}
+
+fk_name field ：the name of machine
+fk_time field ：submit the the time of machine, HTTP request.The form of time string is YYMMDDhhmmss。 fk_info field ：the machine information.
+supported_enroll_data field：the type of registrating data used by machine. For instance, if use fingerprint data,you shall mark FP. fk_bin_data_libfield： explaining dynamic library name used when uploading binary data.
+Such as, FKDataHS001 means that if there is a need of explaining binary data, name FKDataHS001 database will be used. firmwarefield：firmware version of the machine.
+For instance,
+
+
+
+No binary data will be put into the HTTP body when summit the HTTP request.
+
+Server’s response to receive instruction request
+The server will check if there are some instructions aiming at the machine itself, after having received the request. If yes, the server will download the response.
+It contains below information in response header and response body.
+Response header includes following field.
+
+
+
+
+For example, the below response is downloaded.
+
+Data in response body is different according to orders.
+
+The need of request and response for uploading instruction executive result
+After having executed instruction, machine will send HTTP request, receive response and transmit the result to WEB server. Below is the detailed format.
+Uploading the request needed for operator to execute instruction
+Response header includes following field.
+
+
+
+
+
+
+Data in the request nody is different according to the instruction.
+
+The servers response to the request for the machine to upload the result
+The server saves the data to database, executes the instruction and then download below response. Below field will be put in the response header.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Operator Command
+The operator sends the following commends to terminal.
+
+
+
+Get Terminal Enrollment Data(GET_ENROLL_DATA)
+
+
+
+
+
+
+
+Set Database Enroll Data To Terminal(SET_ENROLL_DATA)
+Request to set database enrollment data to terminal
+
+
+
+
+
+Set Synchronization Time(SET_TIME)
+
+Reset the terminal	(RESET_FK)
+Please send this command if you want to reset the terminal due to certain reasons. For example, a certain command status is always under {RUN} status.
+If can’t confirm the reason, reset terminal is the best solution for you.
+After reset the terminal, the terminal ignores all previous commands, and waiting to receive new command.
+
+
+
+
+
+Delete the user (DELETE_USER)
+
+
+Rename the terminal(SET_USER_NAME)
+
+
+
+
+
+
+
+
+Change User Privilege (SET_USER_PRIVILEGE)
+
+
+Get the user ID list (GET_USER_ID_LIST)
+
+
+
+
+Get the record data	(GET_LOG_DATA)
+
+
+
+
+
+
+
+
+Setup Terminal Name (SET_FK_NAME)
+
+Clear Log Data (CLEAR_LOG_DATA)
+
+
+
+
+Clear Enroll Data (CLEAR_ENROLL_DATA)
+
+
+Get the Status information form the terminal (GET_DEVICE_STATUS)
+
+
+Set the user enroll data and information (SET_USER_INFO)
+Set the user fingerprint, facial, password, card, name and the privilege from operational data base into the attendance terminal
+
+
+
+
+
+Get the fingerprint data, facial data, password, ID card, name and the privilege from attendance terminal (GET_USER_INFO)
+
+
+
+
+
+Set Server IP Address and change the port number (SET_WEB_SERVER_INFO)
+Change the Web Server IP address and port number which need to communication with the time attendance terminal Use the instruction when link the communicating attendance terminal with another Web server
+Once the attendance terminal is set another server address, the original communication server address will be cut down. It’s only can communicate with the new server	After set the WEB server address and port number, reboot the attendance terminal can take effect.
+
+
+
+
+Real Time General Logs (RealTime GLog)
+Real time transmission logs is not done by operator command, that is the terminal initiatively send request to WEB server and response. The request and response text column to WEB server is much different from operator command.
+
+
+Real Time Transmission Logs
+
+
+
+
+
+
+Real Time Transmission Enroll Data
+
+
+
+
+
+
+
+Send Command   To Terminal(SET_REMOTE_ENROLL)
+Request  to Send Command   To Terminal
+
+
+
+
+Send Open_Door Command to the Terminal(OPEN_DOOR)
+
+Send Command to the   terminal	
+
+
+
+
+
+
+
+
+
+
+
+ 
+
+Get the name and the privilege from terminal (GET_USER_PROFILE)
+
+
+
+
+
+
+
+Set the user Profile   information (SET_USER_PROFILE)
+Set the user fingerprint, facial, password, card, name and the privilege from operational data base into the attendance terminal
+
+
+
+
+
+
+
+
+Clear Enroll Data (CLEAR_ALL_ADMIN)
+
+
+
+
+
+
+
+Upload User from Photo (ENROLL_USER_PHOTO)
+Enroll  the user facial, name and the privilege from operational    from image the attendance terminal
+
+
+
+

@@ -1,0 +1,112 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:BDL-{YYYY}-{#####}",
+ "creation": "2026-03-12 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "attendance_device",
+  "brand",
+  "log_type",
+  "direction",
+  "column_break_1",
+  "timestamp",
+  "user_pin",
+  "summary",
+  "raw_data_section",
+  "raw_data"
+ ],
+ "fields": [
+  {
+   "fieldname": "attendance_device",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Device",
+   "options": "Attendance Device",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fetch_from": "attendance_device.brand",
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Brand"
+  },
+  {
+   "fieldname": "log_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Type",
+   "options": "\nAttendance\nCommand\nEnrollment\nHandshake\nError"
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "label": "Direction",
+   "options": "\nIN\nOUT",
+   "description": "IN = device→server, OUT = server→device"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "timestamp",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Timestamp",
+   "reqd": 1
+  },
+  {
+   "fieldname": "user_pin",
+   "fieldtype": "Data",
+   "label": "User PIN"
+  },
+  {
+   "fieldname": "summary",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Summary"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "raw_data_section",
+   "fieldtype": "Section Break",
+   "label": "Raw Data"
+  },
+  {
+   "fieldname": "raw_data",
+   "fieldtype": "Code",
+   "label": "Raw Data",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-03-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "Attendance Device Log",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 0,
+   "create": 0
+  }
+ ],
+ "sort_field": "timestamp",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,7 +1,7 @@
 {
  "charts": [],
- "content": "[{\"id\":\"xOOJq3FNd_\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Biometric Integration</span>\",\"col\":12}},{\"id\":\"kP1EtZbST9\",\"type\":\"card\",\"data\":{\"card_name\":\"Biometric Module\",\"col\":4}}]",
- "creation": "2025-07-17 14:33:24.948306",
+ "content": "[{\"id\":\"header1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Biometric Integration</span>\",\"col\":12}},{\"id\":\"card1\",\"type\":\"card\",\"data\":{\"card_name\":\"Devices\",\"col\":4}},{\"id\":\"card2\",\"type\":\"card\",\"data\":{\"card_name\":\"Logs & Commands\",\"col\":4}}]",
+ "creation": "2026-03-12 00:00:00.000000",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -16,8 +16,8 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Biometric Module",
-   "link_count": 4,
+   "label": "Devices",
+   "link_count": 3,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -25,9 +25,29 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Biometric Device",
+   "label": "Attendance Device",
    "link_count": 0,
-   "link_to": "Biometric Device",
+   "link_to": "Attendance Device",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Attendance Device User",
+   "link_count": 0,
+   "link_to": "Attendance Device User",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Attendance Device Settings",
+   "link_count": 0,
+   "link_to": "Attendance Device Settings",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -35,9 +55,18 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Biometric Device User",
+   "label": "Logs & Commands",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Attendance Device Command",
    "link_count": 0,
-   "link_to": "Biometric Device User",
+   "link_to": "Attendance Device Command",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -45,25 +74,15 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Biometric Device Command",
+   "label": "Attendance Device Log",
    "link_count": 0,
-   "link_to": "Biometric Device Command",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Biometric Integration Settings",
-   "link_count": 0,
-   "link_to": "Biometric Integration Settings",
+   "link_to": "Attendance Device Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
   }
  ],
- "modified": "2025-07-17 14:41:13.173999",
+ "modified": "2026-03-12 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Biometric Integration",
  "name": "Biometric Integration",

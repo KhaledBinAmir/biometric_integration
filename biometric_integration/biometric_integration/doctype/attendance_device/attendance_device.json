@@ -1,0 +1,188 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:serial",
+ "creation": "2026-03-12 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "serial",
+  "device_name",
+  "brand",
+  "column_break_1",
+  "disabled",
+  "is_push_configured",
+  "has_pending_command",
+  "section_status",
+  "last_contact",
+  "last_synced_id",
+  "column_break_2",
+  "device_ip",
+  "device_port",
+  "section_assignment",
+  "project",
+  "branch",
+  "column_break_3",
+  "section_sync",
+  "disable_employee_sync",
+  "max_command_attempts"
+ ],
+ "fields": [
+  {
+   "fieldname": "serial",
+   "fieldtype": "Data",
+   "label": "Serial Number",
+   "reqd": 1,
+   "unique": 1,
+   "description": "Device serial number (ZKTeco SN) or Device ID (EBKN dev_id)"
+  },
+  {
+   "fieldname": "device_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Device Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "brand",
+   "fieldtype": "Select",
+   "in_filter": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Brand",
+   "options": "\nZKTeco\nEBKN",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "label": "Disabled"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_push_configured",
+   "fieldtype": "Check",
+   "label": "Push Configured",
+   "read_only": 1,
+   "description": "Set automatically when the device first contacts this server"
+  },
+  {
+   "default": "0",
+   "fieldname": "has_pending_command",
+   "fieldtype": "Check",
+   "label": "Has Pending Command",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_status",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "last_contact",
+   "fieldtype": "Datetime",
+   "label": "Last Contact",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced_id",
+   "fieldtype": "Int",
+   "label": "Last Synced Log ID",
+   "read_only": 1,
+   "description": "ZKTeco: ATTLOGStamp watermark for resumable sync"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "device_ip",
+   "fieldtype": "Data",
+   "label": "Device IP",
+   "description": "Optional. For reference or future pull-mode diagnostics."
+  },
+  {
+   "fieldname": "device_port",
+   "fieldtype": "Int",
+   "label": "Device Port"
+  },
+  {
+   "fieldname": "section_assignment",
+   "fieldtype": "Section Break",
+   "label": "Assignment"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "label": "Branch",
+   "options": "Branch"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_sync",
+   "fieldtype": "Section Break",
+   "label": "Sync Control"
+  },
+  {
+   "default": "0",
+   "fieldname": "disable_employee_sync",
+   "fieldtype": "Check",
+   "label": "Disable Employee Sync",
+   "description": "Prevents Enroll/Delete User commands from being queued for this device"
+  },
+  {
+   "default": "3",
+   "fieldname": "max_command_attempts",
+   "fieldtype": "Int",
+   "label": "Max Command Attempts",
+   "non_negative": 1,
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "link_doctype": "Attendance Device Command",
+   "link_fieldname": "attendance_device"
+  }
+ ],
+ "modified": "2026-03-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "Attendance Device",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "device_name"
+}

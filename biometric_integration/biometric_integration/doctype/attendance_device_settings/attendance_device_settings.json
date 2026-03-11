@@ -1,0 +1,152 @@
+{
+ "actions": [],
+ "creation": "2026-03-12 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_employee",
+  "do_not_skip_unknown_employee_checkin",
+  "section_commands",
+  "maximum_command_attempts",
+  "force_close_after_days",
+  "column_break_1",
+  "enable_device_log",
+  "section_endpoints",
+  "zkteco_server_address",
+  "ebkn_server_address",
+  "section_proxy",
+  "proxy_compatibility_status",
+  "proxy_enabled",
+  "proxy_port",
+  "column_break_2",
+  "generated_nginx_config"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_employee",
+   "fieldtype": "Section Break",
+   "label": "Employee Matching"
+  },
+  {
+   "default": "0",
+   "fieldname": "do_not_skip_unknown_employee_checkin",
+   "fieldtype": "Check",
+   "label": "Create Check-in for Unknown Employees",
+   "description": "If enabled, creates an Employee Checkin with a blank employee link when the device PIN does not match any employee's Attendance Device ID"
+  },
+  {
+   "fieldname": "section_commands",
+   "fieldtype": "Section Break",
+   "label": "Command Settings"
+  },
+  {
+   "default": "3",
+   "fieldname": "maximum_command_attempts",
+   "fieldtype": "Int",
+   "label": "Maximum Command Attempts",
+   "non_negative": 1
+  },
+  {
+   "default": "30",
+   "fieldname": "force_close_after_days",
+   "fieldtype": "Int",
+   "label": "Force Close After (Days)",
+   "non_negative": 1,
+   "description": "Commands older than this many days are automatically closed"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_device_log",
+   "fieldtype": "Check",
+   "label": "Enable Device Log",
+   "description": "Log all device communications to Attendance Device Log (for debugging). Disabled by default to avoid DB bloat."
+  },
+  {
+   "fieldname": "section_endpoints",
+   "fieldtype": "Section Break",
+   "label": "Device Endpoint URLs",
+   "description": "Configure your biometric devices to push data to these URLs"
+  },
+  {
+   "fieldname": "zkteco_server_address",
+   "fieldtype": "Data",
+   "label": "ZKTeco Server Address",
+   "read_only": 1,
+   "description": "Set this as the Server Address in your ZKTeco device (ADMS / Cloud Server settings)"
+  },
+  {
+   "fieldname": "ebkn_server_address",
+   "fieldtype": "Data",
+   "label": "EBKN Server Address",
+   "read_only": 1,
+   "description": "Set this as the server URL in your EBKN device settings"
+  },
+  {
+   "fieldname": "section_proxy",
+   "fieldtype": "Section Break",
+   "label": "On-Premises HTTP Listener",
+   "description": "Biometric devices use plain HTTP. If your Frappe server uses HTTPS (e.g. Frappe Cloud), devices need a local reverse proxy."
+  },
+  {
+   "fieldname": "proxy_compatibility_status",
+   "fieldtype": "HTML",
+   "label": "Compatibility",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "proxy_enabled",
+   "fieldtype": "Check",
+   "label": "Enable HTTP Listener",
+   "depends_on": "eval:frappe.proxy_compatible"
+  },
+  {
+   "default": "8998",
+   "fieldname": "proxy_port",
+   "fieldtype": "Int",
+   "label": "Listener Port",
+   "depends_on": "eval:doc.proxy_enabled && frappe.proxy_compatible",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "generated_nginx_config",
+   "fieldtype": "Code",
+   "label": "Generated Nginx Config",
+   "read_only": 1,
+   "description": "Copy this configuration block and paste it into your Nginx config, then run: sudo service nginx reload"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-03-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "Attendance Device Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

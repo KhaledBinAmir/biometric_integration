@@ -1,0 +1,50 @@
+{
+ "actions": [],
+ "creation": "2026-03-12 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "attendance_device",
+  "brand",
+  "enroll_data_source"
+ ],
+ "fields": [
+  {
+   "fieldname": "attendance_device",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Device",
+   "options": "Attendance Device",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "attendance_device.brand",
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Brand",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "enroll_data_source",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enrollment Source",
+   "read_only": 1,
+   "description": "This device provided the enrollment data that is synced to other devices"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-03-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "Attendance Device Link",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
