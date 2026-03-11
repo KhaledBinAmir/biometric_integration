@@ -96,14 +96,49 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
         blob = _load_blob(user_doc.zkteco_enroll_data)
         if not blob:
             raise FileNotFoundError(f"ZKTeco enroll data missing for user {user_doc.name}")
-        enroll = json.loads(blob.decode("utf-8"))
-        fid = enroll.get("fid", 0)
-        size = enroll.get("size", 0)
-        tmp = enroll.get("tmp", "")
-        return "\n".join([
-            f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri=0\tPasswd=\tCard=0",
-            f"C:{cmd_id}:DATA UPDATE BIODATA\tPIN={pin}\tFID={fid}\tSize={size}\tValid=1\tTMP={tmp}",
-        ])
+
+        try:
+            enroll = json.loads(blob.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            enroll = None
+
+        if enroll and enroll.get("version") == 2:
+            # Current format — full JSON with all biometrics + credentials
+            card = enroll.get("card", "0")
+            passwd = enroll.get("passwd", "")
+            lines = [
+                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri=0\tPasswd={passwd}\tCard={card}",
+            ]
+            for bio in enroll.get("biometrics", []):
+                lines.append(
+                    f"C:{cmd_id}:DATA UPDATE biodata"
+                    f"\tpin={pin}"
+                    f"\tNo={bio['no']}"
+                    f"\tIndex={bio.get('index', 0)}"
+                    f"\tValid={bio.get('valid', 1)}"
+                    f"\tDuress={bio.get('duress', 0)}"
+                    f"\tType={bio['type']}"
+                    f"\tMajorVer={bio.get('majorver', 0)}"
+                    f"\tMinorVer={bio.get('minorver', 0)}"
+                    f"\tSize={bio['size']}"
+                    f"\tTMP={bio['tmp']}"
+                )
+            return "\n".join(lines)
+        elif enroll and "fid" in enroll:
+            # Intermediate format — single FP JSON {"fid", "size", "tmp"}
+            lines = [
+                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri=0\tPasswd=\tCard=0",
+                f"C:{cmd_id}:DATA UPDATE BIODATA\tPIN={pin}\tFID={enroll['fid']}\tSize={enroll['size']}\tValid=1\tTMP={enroll['tmp']}",
+            ]
+            return "\n".join(lines)
+        else:
+            # Legacy format — raw base64 string, assume single fingerprint FID=0
+            tmp = blob.decode("utf-8").strip()
+            size = len(base64.b64decode(tmp + "=="))
+            return "\n".join([
+                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri=0\tPasswd=\tCard=0",
+                f"C:{cmd_id}:DATA UPDATE BIODATA\tPIN={pin}\tFID=0\tSize={size}\tValid=1\tTMP={tmp}",
+            ])
     return None
 
 

@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: MIT
 
 from __future__ import annotations
-from typing import Dict, Optional
+
+import json
+from typing import Any, Dict, Optional
 
 import frappe
 from frappe.model.document import Document
@@ -36,21 +38,114 @@ def get_or_create_user_by_pin(pin: str, name: Optional[str] = None) -> "Attendan
     return doc
 
 
+def update_zkteco_enrollment(
+    user_doc: "AttendanceDeviceUser",
+    device_sn: str,
+    *,
+    biometric: Optional[Dict[str, Any]] = None,
+    card: Optional[str] = None,
+    passwd: Optional[str] = None,
+) -> None:
+    """Merge a biometric template or credential update into the ZKTeco enrollment JSON.
+
+    The enrollment file stores all data needed to fully restore a user to any device:
+      {
+        "version": 2,
+        "card": "0",
+        "passwd": "",
+        "biometrics": [
+          {"type": 1, "no": 0, "index": 0, "size": 512, "valid": 1,
+           "duress": 0, "majorver": 10, "minorver": 0, "tmp": "base64..."},
+          {"type": 9, "no": 0, "index": 0, "size": 2048, "valid": 1,
+           "duress": 0, "majorver": 1,  "minorver": 0, "tmp": "base64..."}
+        ]
+      }
+
+    biometric type values: 1=Fingerprint, 2=NIR Face, 8=Palm vein, 9=Visible Face
+    """
+    existing = _load_zkteco_enrollment(user_doc)
+
+    if biometric:
+        bio_type = biometric.get("type", 1)
+        bio_no = biometric.get("no", 0)
+        updated = False
+        for i, b in enumerate(existing["biometrics"]):
+            if b.get("type") == bio_type and b.get("no") == bio_no:
+                existing["biometrics"][i] = biometric
+                updated = True
+                break
+        if not updated:
+            existing["biometrics"].append(biometric)
+
+    if card is not None:
+        existing["card"] = card
+    if passwd is not None:
+        existing["passwd"] = passwd
+
+    _save_zkteco_enrollment(user_doc, device_sn, existing)
+
+
 def save_enrollment_data(
     user_doc: "AttendanceDeviceUser",
     brand: str,
     device_sn: str,
     data: bytes,
 ) -> None:
-    """Save raw enrollment blob as a private file and link it to the user doc.
-    Marks the source device in the child table and queues Enroll User commands
-    for all other devices of the same brand.
+    """Save raw enrollment blob for EBKN (binary format).
+
+    For ZKTeco, use update_zkteco_enrollment() instead — it merges into a
+    JSON structure that accumulates all fingers, face, card and password.
     """
     blob_field = _BRAND_BLOB_FIELD.get(brand)
     if not blob_field:
         frappe.log_error(f"save_enrollment_data: unsupported brand '{brand}'")
         return
 
+    _write_enrollment_file(user_doc, brand, device_sn, blob_field, data)
+
+
+def _load_zkteco_enrollment(user_doc: "AttendanceDeviceUser") -> Dict[str, Any]:
+    """Load existing ZKTeco enrollment JSON, or return a fresh skeleton."""
+    skeleton: Dict[str, Any] = {
+        "version": 2,
+        "card": "0",
+        "passwd": "",
+        "biometrics": [],
+    }
+    file_url = user_doc.get("zkteco_enroll_data")
+    if not file_url:
+        return skeleton
+    file_name = frappe.db.get_value("File", {"file_url": file_url}, "name")
+    if not file_name:
+        return skeleton
+    try:
+        raw = frappe.get_doc("File", file_name).get_content()
+        if isinstance(raw, str):
+            raw = raw.encode("utf-8")
+        parsed = json.loads(raw.decode("utf-8"))
+        if parsed.get("version") == 2 and "biometrics" in parsed:
+            return parsed
+    except Exception:
+        pass
+    return skeleton
+
+
+def _save_zkteco_enrollment(
+    user_doc: "AttendanceDeviceUser",
+    device_sn: str,
+    data: Dict[str, Any],
+) -> None:
+    payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    _write_enrollment_file(user_doc, "ZKTeco", device_sn, "zkteco_enroll_data", payload)
+
+
+def _write_enrollment_file(
+    user_doc: "AttendanceDeviceUser",
+    brand: str,
+    device_sn: str,
+    blob_field: str,
+    data: bytes,
+) -> None:
     file_doc = frappe.get_doc({
         "doctype": "File",
         "file_name": f"{brand.lower()}_enroll_{user_doc.user_id}_{device_sn}.bin",

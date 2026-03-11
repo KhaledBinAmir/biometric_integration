@@ -36,6 +36,7 @@ from biometric_integration.services.command_processor import process_device_comm
 from biometric_integration.biometric_integration.doctype.attendance_device_user.attendance_device_user import (
     get_or_create_user_by_pin,
     save_enrollment_data,
+    update_zkteco_enrollment,
 )
 from biometric_integration.biometric_integration.doctype.attendance_device_log.attendance_device_log import maybe_log
 from biometric_integration.utils.device_cache import (
@@ -245,27 +246,31 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         rather than returning after the first matching type.
         """
         users_processed = 0
-        fps_processed = 0
+        bios_processed = 0
 
         for line in body.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
             try:
-                if line.startswith("USER"):
+                if line.startswith("USER") or line.startswith("ENROLL_USER"):
                     users_processed += _handle_operlog_user(sn, line)
                 elif line.startswith("FP "):
-                    fps_processed += _handle_operlog_fp(sn, line)
-                elif line.startswith("ENROLL_USER"):
-                    # Enrollment event notification — same handling as USER record
-                    users_processed += _handle_operlog_user(sn, line)
+                    # Older firmware fingerprint format
+                    bios_processed += _handle_operlog_fp(sn, line)
+                elif line.lower().startswith("face "):
+                    # Older firmware face format
+                    bios_processed += _handle_operlog_face(sn, line)
+                elif line.lower().startswith("biodata "):
+                    # Newer unified biometric format (all types: FP, face, palm, etc.)
+                    bios_processed += _handle_operlog_biodata(sn, line)
             except Exception as exc:
                 frappe.log_error(
                     title="ZKTeco OPERLOG Line Error",
                     message=f"SN={sn} Line: {line!r}\n{exc}",
                 )
 
-        return self.text(f"OK: users={users_processed} fp={fps_processed}")
+        return self.text(f"OK: users={users_processed} bios={bios_processed}")
 
     # ------------------------------------------------------------------
     # Command polling  (GET /iclock/getrequest)
@@ -346,25 +351,84 @@ def _handle_operlog_user(sn: str, line: str) -> int:
 
     user_doc.save(ignore_permissions=True)
     frappe.db.commit()
+
+    # Persist card and password into enrollment JSON
+    card = data.get("Card") or data.get("CardNo") or "0"
+    passwd = data.get("Passwd") or data.get("Password") or ""
+    update_zkteco_enrollment(user_doc, sn, card=card, passwd=passwd)
+
     maybe_log(sn, "Enrollment", "IN", f"USER PIN={pin} Name={name}", user_pin=pin)
     return 1
 
 
 def _handle_operlog_fp(sn: str, line: str) -> int:
-    """Handle an FP (fingerprint) line from OPERLOG.
+    """Handle an FP (fingerprint) line from OPERLOG — older firmware format.
 
-    Saves the template and propagates to other devices.
-    Returns 1 on success, 0 on skip.
+    FP PIN=X FID=Y Size=N Valid=V TMP=base64
+    Biometric type 1 = Fingerprint, no = FID (0-9 for ten fingers).
     """
-    m = re.search(r"FP\s+PIN=(\S+)\s+FID=(\d+)\s+Size=(\d+)\s+Valid=\d+\s+TMP=(\S+)", line)
+    m = re.search(r"FP\s+PIN=(\S+)\s+FID=(\d+)\s+Size=(\d+)\s+Valid=(\d+)\s+TMP=(\S+)", line)
     if not m:
         return 0
-    pin, fid, size, template = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)
+    pin, fid, size, valid, tmp = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), m.group(5)
     user_doc = get_or_create_user_by_pin(pin)
-    # Store as JSON to preserve FID and size for accurate command reconstruction
-    payload = json.dumps({"fid": fid, "size": size, "tmp": template}).encode("utf-8")
-    save_enrollment_data(user_doc, "ZKTeco", sn, payload)
+    update_zkteco_enrollment(user_doc, sn, biometric={
+        "type": 1, "no": fid, "index": 0,
+        "size": size, "valid": valid, "duress": 0,
+        "majorver": 0, "minorver": 0, "tmp": tmp,
+    })
     maybe_log(sn, "Enrollment", "IN", f"FP PIN={pin} FID={fid}", user_pin=pin)
+    return 1
+
+
+def _handle_operlog_face(sn: str, line: str) -> int:
+    """Handle a FACE line from OPERLOG — older firmware format.
+
+    FACE PIN=X FID=Y Size=N Valid=V TMP=base64
+    Biometric type 9 = Visible light face.
+    """
+    m = re.search(r"FACE\s+PIN=(\S+)\s+FID=(\d+)\s+Size=(\d+)\s+Valid=(\d+)\s+TMP=(\S+)", line, re.IGNORECASE)
+    if not m:
+        return 0
+    pin, fid, size, valid, tmp = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), m.group(5)
+    user_doc = get_or_create_user_by_pin(pin)
+    update_zkteco_enrollment(user_doc, sn, biometric={
+        "type": 9, "no": fid, "index": 0,
+        "size": size, "valid": valid, "duress": 0,
+        "majorver": 0, "minorver": 0, "tmp": tmp,
+    })
+    maybe_log(sn, "Enrollment", "IN", f"FACE PIN={pin} FID={fid}", user_pin=pin)
+    return 1
+
+
+def _handle_operlog_biodata(sn: str, line: str) -> int:
+    """Handle a biodata line from OPERLOG — newer unified firmware format.
+
+    biodata pin=X no=Y index=I valid=V duress=D type=T majorver=M minorver=m size=S TMP=base64
+    Covers all biometric types: 1=FP, 2=NIR face, 8=Palm vein, 9=Visible face, etc.
+    """
+    m = re.search(
+        r"biodata\s+pin=(\S+)\s+no=(\d+)\s+index=(\d+)\s+valid=(\d+)\s+duress=(\d+)"
+        r"\s+type=(\d+)(?:\s+majorver=(\d+))?(?:\s+minorver=(\d+))?(?:\s+size=(\d+))?\s+TMP=(\S+)",
+        line, re.IGNORECASE,
+    )
+    if not m:
+        return 0
+    pin = m.group(1)
+    user_doc = get_or_create_user_by_pin(pin)
+    update_zkteco_enrollment(user_doc, sn, biometric={
+        "type": int(m.group(6)),
+        "no": int(m.group(2)),
+        "index": int(m.group(3)),
+        "size": int(m.group(9) or 0),
+        "valid": int(m.group(4)),
+        "duress": int(m.group(5)),
+        "majorver": int(m.group(7) or 0),
+        "minorver": int(m.group(8) or 0),
+        "tmp": m.group(10),
+    })
+    bio_type = m.group(6)
+    maybe_log(sn, "Enrollment", "IN", f"biodata PIN={pin} type={bio_type} no={m.group(2)}", user_pin=pin)
     return 1
 
 
