@@ -89,14 +89,17 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
             f"C:{cmd_id}:DATA QUERY FPTMP PIN={pin}",
         ])
 
+    if cmd_doc.command_type == "Update User":
+        return f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri=0\tPasswd=\tCard=0"
+
     if cmd_doc.command_type == "Enroll User":
         blob = _load_blob(user_doc.zkteco_enroll_data)
         if not blob:
             raise FileNotFoundError(f"ZKTeco enroll data missing for user {user_doc.name}")
         template_b64 = base64.b64encode(blob).decode()
         return "\n".join([
-            f"C:{cmd_id}:DATA UPDATE USERINFO PIN={pin}\tName={name}\tPri=0",
-            f"C:{cmd_id}:DATA UPDATE FINGERPRINT PIN={pin}\tFID=0\tSize={len(blob)}\tValid=1\tTMP={template_b64}",
+            f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri=0\tPasswd=\tCard=0",
+            f"C:{cmd_id}:DATA UPDATE BIODATA\tPIN={pin}\tFID=0\tSize={len(blob)}\tValid=1\tTMP={template_b64}",
         ])
     return None
 

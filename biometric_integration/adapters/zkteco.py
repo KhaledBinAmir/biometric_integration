@@ -37,6 +37,9 @@ from biometric_integration.biometric_integration.doctype.attendance_device_user.
     save_enrollment_data,
 )
 from biometric_integration.biometric_integration.doctype.attendance_device_log.attendance_device_log import maybe_log
+from biometric_integration.biometric_integration.doctype.attendance_device_settings.attendance_device_settings import (
+    get_erp_employee_id,
+)
 
 
 class ZKTecoAdapter(AbstractDeviceAdapter):
@@ -168,15 +171,17 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         table = args.get("table", "")
         body_str = self.raw_body.decode("utf-8", errors="ignore")
 
+        if not _is_registered_device(sn):
+            maybe_log(sn or "unknown", "Error", "IN",
+                      f"Data from unregistered device SN={sn} (table={table}) — ignored")
+            return self.text("OK")
+
         if table == "ATTLOG":
             return self._process_attlog(sn, body_str)
         if table == "rtlog":
             return self._process_rtlog(sn, body_str)
         if table == "OPERLOG":
-            if "USER" in body_str:
-                return self._process_user_data(sn, body_str)
-            if "FP" in body_str:
-                return self._process_fingerprint_data(sn, body_str)
+            return self._process_operlog(sn, body_str)
         # options, rtstate, tabledata, etc. — acknowledge
         return self.text("OK")
 
@@ -234,32 +239,34 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             frappe.log_error(title="ZKTeco rtlog Parse Error", message=f"Body: {body!r}\n{exc}")
         return self.text("OK")
 
-    def _process_user_data(self, sn: str, body: str) -> Response:
-        processed = 0
-        for line in body.strip().split("\n"):
-            if not line.startswith("USER"):
-                continue
-            data = _parse_kv(line)
-            pin = data.get("PIN")
-            if pin:
-                get_or_create_user_by_pin(pin, data.get("Name"))
-                processed += 1
-        return self.text(f"OK: {processed}")
+    def _process_operlog(self, sn: str, body: str) -> Response:
+        """Process OPERLOG upload — may contain USER, FP, and ENROLL_USER records.
 
-    def _process_fingerprint_data(self, sn: str, body: str) -> Response:
-        pattern = re.findall(
-            r"FP PIN=(\S+)\s+FID=(\d+)\s+Size=(\d+)\s+Valid=(\d+)\s+TMP=(.*)", body
-        )
-        processed = 0
-        for pin, fid, size, valid, template in pattern:
+        Each line is a separate record. We process all of them in a single pass
+        rather than returning after the first matching type.
+        """
+        users_processed = 0
+        fps_processed = 0
+
+        for line in body.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
             try:
-                user_doc = get_or_create_user_by_pin(pin)
-                if user_doc:
-                    save_enrollment_data(user_doc, "ZKTeco", sn, template.encode("utf-8"))
-                    processed += 1
+                if line.startswith("USER"):
+                    users_processed += _handle_operlog_user(sn, line)
+                elif line.startswith("FP "):
+                    fps_processed += _handle_operlog_fp(sn, line)
+                elif line.startswith("ENROLL_USER"):
+                    # Enrollment event notification — same handling as USER record
+                    users_processed += _handle_operlog_user(sn, line)
             except Exception as exc:
-                frappe.log_error(title="ZKTeco FP Data Error", message=f"PIN={pin}: {exc}")
-        return self.text(f"OK: {processed}")
+                frappe.log_error(
+                    title="ZKTeco OPERLOG Line Error",
+                    message=f"SN={sn} Line: {line!r}\n{exc}",
+                )
+
+        return self.text(f"OK: users={users_processed} fp={fps_processed}")
 
     # ------------------------------------------------------------------
     # Command polling  (GET /iclock/getrequest)
@@ -311,6 +318,59 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+def _is_registered_device(sn: str) -> bool:
+    """Return True if SN exists in Attendance Device table."""
+    return bool(sn and frappe.db.exists("Attendance Device", sn))
+
+
+def _handle_operlog_user(sn: str, line: str) -> int:
+    """Handle a USER or ENROLL_USER line from OPERLOG.
+
+    Creates or updates the Attendance Device User, links employee if possible,
+    and adds this device to the user's device list.
+    Returns 1 on success, 0 on skip.
+    """
+    data = _parse_kv(line)
+    pin = data.get("PIN")
+    if not pin:
+        return 0
+
+    name = data.get("Name") or data.get("name")
+    user_doc = get_or_create_user_by_pin(pin, name)
+
+    # Ensure this device is in the user's device list
+    device_in_list = any(row.attendance_device == sn for row in user_doc.get("devices", []))
+    if not device_in_list:
+        user_doc.append("devices", {"attendance_device": sn, "brand": "ZKTeco", "enroll_data_source": 0})
+
+    # Link employee if not yet linked
+    if not user_doc.employee:
+        emp = get_erp_employee_id(pin)
+        if emp:
+            user_doc.employee = emp
+
+    user_doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    maybe_log(sn, "Enrollment", "IN", f"USER PIN={pin} Name={name}", user_pin=pin)
+    return 1
+
+
+def _handle_operlog_fp(sn: str, line: str) -> int:
+    """Handle an FP (fingerprint) line from OPERLOG.
+
+    Saves the template and propagates to other devices.
+    Returns 1 on success, 0 on skip.
+    """
+    m = re.search(r"FP\s+PIN=(\S+)\s+FID=(\d+)\s+Size=\d+\s+Valid=\d+\s+TMP=(\S+)", line)
+    if not m:
+        return 0
+    pin, fid, template = m.group(1), m.group(2), m.group(3)
+    user_doc = get_or_create_user_by_pin(pin)
+    save_enrollment_data(user_doc, "ZKTeco", sn, template.encode("utf-8"))
+    maybe_log(sn, "Enrollment", "IN", f"FP PIN={pin} FID={fid}", user_pin=pin)
+    return 1
+
 
 def _parse_kv(line: str) -> dict:
     """Parse ZKTeco space-separated KEY=VALUE line (e.g. 'USER PIN=001 Name=John ...')."""

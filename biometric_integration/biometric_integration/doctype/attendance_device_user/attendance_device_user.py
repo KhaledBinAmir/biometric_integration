@@ -109,6 +109,7 @@ def _trigger_sync(doc: "AttendanceDeviceUser", is_new: bool) -> None:
         before = doc.get_doc_before_save()
         if before:
             _sync_on_device_list_change(doc, before)
+            _sync_on_employee_link(doc, before)
 
 
 def _sync_on_enrollment_change(doc: "AttendanceDeviceUser") -> None:
@@ -139,6 +140,16 @@ def _sync_on_device_list_change(
     for device_id in set(before) - set(after):
         brand = before[device_id]
         add_command(device_id, doc.name, brand, "Delete User")
+
+
+def _sync_on_employee_link(
+    doc: "AttendanceDeviceUser",
+    before_doc: "AttendanceDeviceUser",
+) -> None:
+    """When employee is newly linked, push updated name to ZKTeco devices."""
+    if not before_doc.employee and doc.employee:
+        from biometric_integration.services.user_sync import on_employee_linked
+        on_employee_linked(doc)
 
 
 def _get_user_devices(

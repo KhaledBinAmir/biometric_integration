@@ -27,5 +27,12 @@ default_log_clearing_doctypes = {
     "Attendance Device Log": 30,
 }
 
+# --- Document Events ---
+doc_events = {
+    "Employee": {
+        "on_update": "biometric_integration.services.user_sync.on_employee_update",
+    },
+}
+
 # --- CLI (kept for advanced / self-hosted users) ---
 console_scripts = ["biometric-listener=biometric_integration.commands.cli:main"]

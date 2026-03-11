@@ -132,11 +132,16 @@ def _handle_realtime_glog(payload: dict, ctx: dict) -> Reply:
     try:
         dev_id = ctx["dev_id"]
         trans_id = ctx["trans_id"]
+
+        if not _is_registered_device(dev_id):
+            maybe_log(dev_id, "Error", "IN", f"Attendance from unregistered device dev_id={dev_id} — ignored")
+            return _ok_bytes(), 200, _resp_headers(trans_id=trans_id)
+
         user_id = str(payload.get("user_id", "")).lstrip("0") or str(payload.get("user_id", ""))
         ts = datetime.strptime(payload["io_time"], "%Y-%m-%d %H:%M:%S")
         log_type = "IN" if payload.get("io_mode") == 1 else "OUT"
 
-        ok = create_employee_checkin(
+        create_employee_checkin(
             device_pin=user_id,
             timestamp=ts,
             device_id=dev_id,
@@ -221,6 +226,9 @@ def _handle_realtime_enroll(payload: dict, ctx: dict) -> Reply:
     user_id = str(user_id_raw).lstrip("0") or str(user_id_raw)
 
     try:
+        if not _is_registered_device(dev_id):
+            maybe_log(dev_id, "Error", "IN", f"Enrollment from unregistered device dev_id={dev_id} — ignored")
+            return _ok_bytes(), 200, _resp_headers(trans_id=trans_id)
         user_doc = get_or_create_user_by_pin(user_id)
         # Ensure device is in user's device list
         if not any(row.attendance_device == dev_id for row in user_doc.get("devices", [])):
@@ -408,6 +416,11 @@ def _format_cmd_body(raw: typing.Union[str, bytes, None]) -> bytes:
         payload = raw.encode("utf-8")
         return struct.pack("<I", len(payload) + 1) + payload + b"\x00"
     raise TypeError(f"Unsupported EBKN command body type: {type(raw)}")
+
+
+def _is_registered_device(dev_id: str) -> bool:
+    """Return True if dev_id exists in Attendance Device table."""
+    return bool(dev_id and frappe.db.exists("Attendance Device", dev_id))
 
 
 def _get_header(headers, *names: str) -> str | None:
