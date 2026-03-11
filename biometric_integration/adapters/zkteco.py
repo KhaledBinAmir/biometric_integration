@@ -102,7 +102,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             "TransTimes=00:00;14:05\n"
             "TransInterval=1\n"
             "TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP UserPic\n"
-            "TimeZone=6\n"
+            f"TimeZone={_get_frappe_tz_hours()}\n"
             "Realtime=1\n"
             "Encrypt=None\n"
         )
@@ -137,7 +137,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             "TransTimes=00:00;14:05\n"
             "TransInterval=1\n"
             "TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP UserPic\n"
-            "TimeZone=6\n"
+            f"TimeZone={_get_frappe_tz_hours()}\n"
             "Realtime=1\n"
             "Encrypt=None\n"
         )
@@ -150,10 +150,10 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
     def _handle_rtdata(self, args) -> Response:
         """Device requests server time for clock sync.
 
-        DateTime must be UTC encoded with ZKTeco's custom formula (Appendix 5):
+        DateTime is Greenwich Mean Time (UTC) encoded with ZKTeco's custom formula (Appendix 5):
           tt = ((year-2000)*12*31 + (mon-1)*31 + day-1) * 86400 + (hour*60+min)*60 + sec
 
-        ServerTZ is the server's local timezone offset in ±HHMM format.
+        ServerTZ is the server's local timezone offset in ±HHMM format (e.g. +0100).
         """
         rt_type = args.get("type", "")
         if rt_type == "time":
@@ -449,19 +449,35 @@ def _zkteco_encode_time(dt: datetime) -> int:
 
 
 def _get_frappe_tz_offset() -> str:
-    """Return the Frappe system timezone as ±HHMM (e.g. '+0600').
+    """Return the Frappe system timezone as ±HHMM (e.g. '+0100').
 
-    Uses frappe.utils.now_datetime() which already returns the current time
-    in the site's configured timezone (System Settings → time_zone).
+    Used for ServerTZ in the rtdata response.
     Falls back to '+0000' on any error.
     """
     try:
         from zoneinfo import ZoneInfo
         tz_name = frappe.utils.get_time_zone()
         now_local = datetime.now(ZoneInfo(tz_name))
-        return now_local.strftime("%z")  # e.g. "+0600"
+        return now_local.strftime("%z")  # e.g. "+0100"
     except Exception:
         return "+0000"
+
+
+def _get_frappe_tz_hours() -> int:
+    """Return the Frappe system timezone UTC offset as a whole-hour integer (e.g. 1 for UTC+1).
+
+    Used for TimeZone= in handshake and push responses.
+    ZKTeco expects an integer representing UTC offset hours.
+    Falls back to 0 on any error.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        tz_name = frappe.utils.get_time_zone()
+        now_local = datetime.now(ZoneInfo(tz_name))
+        offset_seconds = int(now_local.utcoffset().total_seconds())
+        return offset_seconds // 3600
+    except Exception:
+        return 0
 
 
 def _parse_kv_tsv(line: str) -> dict:
