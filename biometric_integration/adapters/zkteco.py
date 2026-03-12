@@ -84,11 +84,12 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 
         if not is_registered_device(sn):
             maybe_log(sn, "Error", "IN",
-                      f"Handshake from unregistered device SN={sn} — rejected", force=True)
+                      f"Handshake from unregistered device SN={sn} — rejected",
+                      raw_data=self.raw_dump("ERROR: Device not registered."),
+                      force=True)
             return self.text("ERROR: Device not registered.")
 
         touch_device(sn)
-        maybe_log(sn, "Handshake", "IN", f"Handshake SN={sn}")
 
         last_sync_id = get_last_sync_id(sn)
         settings = frappe.get_cached_doc("Attendance Integration Settings")
@@ -107,6 +108,8 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             + "Realtime=1\n"
             "Encrypt=None\n"
         )
+        maybe_log(sn, "Handshake", "IN", f"Handshake SN={sn}",
+                  raw_data=self.raw_dump(body))
         return self.text(body)
 
     # ------------------------------------------------------------------
@@ -118,7 +121,8 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         sn = args.get("SN") or args.get("sn")
         if sn and is_registered_device(sn):
             touch_device(sn)
-        maybe_log(sn or "unknown", "Handshake", "IN", f"Registry SN={sn}")
+        maybe_log(sn or "unknown", "Handshake", "IN", f"Registry SN={sn}",
+                  raw_data=self.raw_dump("RegistryCode=0"))
         return self.text("RegistryCode=0")
 
     # ------------------------------------------------------------------
@@ -177,8 +181,9 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         if not is_registered_device(sn):
             maybe_log(sn or "unknown", "Error", "IN",
                       f"Data from unregistered device SN={sn} (table={table}) — ignored",
+                      raw_data=self.raw_dump(),
                       force=True)
-            return self.text("OK")
+            return self.text("ERROR: Device not registered.")
 
         if table == "ATTLOG":
             return self._process_attlog(sn, body_str)
