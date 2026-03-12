@@ -26,6 +26,7 @@ scheduler_events = {
 # --- Log Retention ---
 default_log_clearing_doctypes = {
     "Attendance Device Log": 30,
+    "Attendance Device Command": 90,
 }
 
 # --- Document Events ---

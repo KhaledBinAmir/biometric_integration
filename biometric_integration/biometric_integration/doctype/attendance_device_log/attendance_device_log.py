@@ -1,11 +1,18 @@
 # Copyright (c) 2026, Khaled Bin Amir
 # SPDX-License-Identifier: MIT
 
+import frappe
 from frappe.model.document import Document
 
 
 class AttendanceDeviceLog(Document):
-    pass
+    @staticmethod
+    def clear_old_logs(days=30):
+        from frappe.query_builder import Interval
+        from frappe.query_builder.functions import Now
+
+        table = frappe.qb.DocType("Attendance Device Log")
+        frappe.db.delete(table, filters=(table.modified < (Now() - Interval(days=days))))
 
 
 def maybe_log(

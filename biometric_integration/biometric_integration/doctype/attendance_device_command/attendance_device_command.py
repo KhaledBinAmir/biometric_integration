@@ -9,6 +9,14 @@ from frappe.utils import cint, add_to_date, now_datetime, get_datetime
 
 
 class AttendanceDeviceCommand(Document):
+    @staticmethod
+    def clear_old_logs(days=90):
+        from frappe.query_builder import Interval
+        from frappe.query_builder.functions import Now
+
+        table = frappe.qb.DocType("Attendance Device Command")
+        frappe.db.delete(table, filters=(table.modified < (Now() - Interval(days=days))))
+
     def after_insert(self):
         """Set the pending command flag on the device so polling is efficient."""
         if self.attendance_device:
