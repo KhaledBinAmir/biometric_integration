@@ -91,6 +91,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         maybe_log(sn, "Handshake", "IN", f"Handshake SN={sn}")
 
         last_sync_id = get_last_sync_id(sn)
+        settings = frappe.get_cached_doc("Attendance Integration Settings")
 
         body = (
             f"GET OPTION FROM: {sn}\n"
@@ -102,8 +103,8 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             "TransTimes=00:00;14:05\n"
             "TransInterval=1\n"
             "TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP UserPic\n"
-            f"TimeZone={_get_frappe_tz_hours()}\n"
-            "Realtime=1\n"
+            + (f"TimeZone={_get_frappe_tz_hours()}\n" if settings.push_timezone_to_device else "")
+            + "Realtime=1\n"
             "Encrypt=None\n"
         )
         return self.text(body)
@@ -128,6 +129,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         """Device downloads full config after registration. Return same params as handshake."""
         sn = args.get("SN") or args.get("sn")
         last_sync_id = get_last_sync_id(sn) if sn else 0
+        settings = frappe.get_cached_doc("Attendance Integration Settings")
         body = (
             f"ATTLOGStamp={last_sync_id}\n"
             "OPERLOGStamp=9999\n"
@@ -137,8 +139,8 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             "TransTimes=00:00;14:05\n"
             "TransInterval=1\n"
             "TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP UserPic\n"
-            f"TimeZone={_get_frappe_tz_hours()}\n"
-            "Realtime=1\n"
+            + (f"TimeZone={_get_frappe_tz_hours()}\n" if settings.push_timezone_to_device else "")
+            + "Realtime=1\n"
             "Encrypt=None\n"
         )
         return self.text(body)

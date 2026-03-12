@@ -6,6 +6,7 @@
  "field_order": [
   "section_employee",
   "do_not_skip_unknown_employee_checkin",
+  "push_timezone_to_device",
   "section_commands",
   "maximum_command_attempts",
   "force_close_after_days",
@@ -32,6 +33,13 @@
    "fieldname": "do_not_skip_unknown_employee_checkin",
    "fieldtype": "Check",
    "label": "Create Check-in for Unknown Employees"
+  },
+  {
+   "default": "1",
+   "description": "When enabled, the server sends its configured timezone to the device on every handshake so the device clock stays in sync automatically. Disable if you prefer to set the timezone directly on the device hardware.",
+   "fieldname": "push_timezone_to_device",
+   "fieldtype": "Check",
+   "label": "Push Timezone to Device"
   },
   {
    "fieldname": "section_commands",
