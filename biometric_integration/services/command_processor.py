@@ -17,7 +17,11 @@ from frappe.utils import cint, now, now_datetime
 
 
 def process_device_command(device_sn: str) -> Optional[Union[str, dict]]:
-    """Return the next pending command payload for the device, or None if none."""
+    """Return the next pending command payload for the device, or None if none.
+
+    ZKTeco commands return a string (ADMS protocol lines).
+    EBKN commands return a dict with cmd_code/trans_id/body.
+    """
     command_name = frappe.db.get_value(
         "Attendance Device Command",
         {"attendance_device": device_sn, "status": "Pending"},
@@ -28,6 +32,38 @@ def process_device_command(device_sn: str) -> Optional[Union[str, dict]]:
         return None
 
     cmd_doc = frappe.get_doc("Attendance Device Command", command_name)
+
+    if cmd_doc.command_type == "Restart Device":
+        brand = frappe.db.get_value("Attendance Device", device_sn, "brand")
+        cmd_doc.status = "Success"
+        cmd_doc.closed_on = now_datetime()
+        cmd_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        if brand == "EBKN":
+            return {"trans_id": cmd_doc.name, "cmd_code": "RESET_FK", "body": ""}
+        return f"C:{cmd_doc.name}:REBOOT"  # ZKTeco
+
+    if cmd_doc.command_type == "Unlock Door":
+        brand = frappe.db.get_value("Attendance Device", device_sn, "brand")
+        # Leave as Pending — device will report result via devicecmd (ZKTeco) or
+        # send_cmd_result (EBKN), which updates status to Success or Failed.
+        cmd_doc.no_of_attempts = (cmd_doc.no_of_attempts or 0) + 1
+        cmd_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        if brand == "EBKN":
+            return {"trans_id": cmd_doc.name, "cmd_code": "OPEN_DOOR", "body": ""}
+        return f"C:{cmd_doc.name}:CONTROL DEVICE 1"  # ZKTeco: door relay open
+
+    if cmd_doc.command_type == "Sync User List":
+        brand = frappe.db.get_value("Attendance Device", device_sn, "brand")
+        cmd_doc.no_of_attempts = (cmd_doc.no_of_attempts or 0) + 1
+        cmd_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        if brand == "EBKN":
+            return {"trans_id": cmd_doc.name, "cmd_code": "GET_USER_ID_LIST", "body": ""}
+        # ZKTeco: device will POST results to /iclock/querydata
+        return f"C:{cmd_doc.name}:DATA QUERY tablename=user,fielddesc=*,filter=*"
+
     try:
         payload = _build_payload(cmd_doc)
         if payload:

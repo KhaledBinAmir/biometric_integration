@@ -27,12 +27,14 @@ class ZKTecoRenderer(BaseRenderer):
         from biometric_integration.adapters.zkteco import ZKTecoAdapter
         try:
             frappe.set_user("Administrator")
-            return ZKTecoAdapter(frappe.local.request).dispatch()
+            response = ZKTecoAdapter(frappe.local.request).dispatch()
         except Exception:
+            frappe.db.rollback()
             frappe.log_error(title="ZKTeco Renderer Error", message=frappe.get_traceback())
             return Response("Internal Server Error", status=500, mimetype="text/plain")
-        finally:
+        else:
             frappe.db.commit()
+            return response
 
 
 class EBKNRenderer(BaseRenderer):
@@ -45,9 +47,11 @@ class EBKNRenderer(BaseRenderer):
         from biometric_integration.adapters.ebkn import EBKNAdapter
         try:
             frappe.set_user("Administrator")
-            return EBKNAdapter(frappe.local.request).dispatch()
+            response = EBKNAdapter(frappe.local.request).dispatch()
         except Exception:
+            frappe.db.rollback()
             frappe.log_error(title="EBKN Renderer Error", message=frappe.get_traceback())
             return Response("Internal Server Error", status=500)
-        finally:
+        else:
             frappe.db.commit()
+            return response

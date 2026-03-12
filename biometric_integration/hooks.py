@@ -14,6 +14,7 @@ page_renderer = [
 
 # --- Lifecycle ---
 after_uninstall = "biometric_integration.utils.installation.after_uninstall"
+after_migrate = ["biometric_integration.utils.installation.after_migrate"]
 
 # --- Scheduled Tasks ---
 scheduler_events = {
@@ -33,6 +34,18 @@ doc_events = {
         "on_update": "biometric_integration.services.user_sync.on_employee_update",
     },
 }
+
+# --- Fixtures (custom fields + property setters applied on bench migrate) ---
+fixtures = [
+    {
+        "dt": "Custom Field",
+        "filters": [["name", "in", ["Employee Checkin-biometric_method", "Employee Checkin-attendance_device"]]],
+    },
+    {
+        "dt": "Property Setter",
+        "filters": [["name", "in", ["Employee Checkin-device_id-fieldtype", "Employee Checkin-device_id-options"]]],
+    },
+]
 
 # --- CLI (kept for advanced / self-hosted users) ---
 console_scripts = ["biometric-listener=biometric_integration.commands.cli:main"]

@@ -66,7 +66,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Command Type",
-   "options": "\nGet Enroll Data\nEnroll User\nDelete User\nUpdate User",
+   "options": "\nGet Enroll Data\nEnroll User\nDelete User\nUpdate User\nRestart Device\nSync User List\nUnlock Door",
    "reqd": 1
   },
   {

@@ -6,12 +6,19 @@
  "field_order": [
   "section_employee",
   "do_not_skip_unknown_employee_checkin",
+  "column_break_ziga",
   "push_timezone_to_device",
   "section_commands",
   "maximum_command_attempts",
   "force_close_after_days",
   "column_break_1",
   "enable_device_log",
+  "section_zkteco_sync",
+  "device_poll_delay",
+  "device_error_delay",
+  "column_break_zkteco_sync",
+  "trans_times",
+  "trans_interval",
   "section_endpoints",
   "zkteco_server_address",
   "ebkn_server_address",
@@ -73,6 +80,47 @@
    "label": "Enable Device Log"
   },
   {
+   "fieldname": "section_zkteco_sync",
+   "fieldtype": "Section Break",
+   "label": "ZKTeco Sync Parameters",
+   "description": "These values are pushed to ZKTeco devices on every handshake. EBKN devices use real-time push and do not have a polling cycle — these settings do not apply to EBKN."
+  },
+  {
+   "default": "10",
+   "description": "Seconds between device polls when idle (Delay= in handshake)",
+   "fieldname": "device_poll_delay",
+   "fieldtype": "Int",
+   "label": "Poll Delay (seconds)",
+   "non_negative": 1
+  },
+  {
+   "default": "30",
+   "description": "Seconds before retry after a communication error (ErrorDelay= in handshake)",
+   "fieldname": "device_error_delay",
+   "fieldtype": "Int",
+   "label": "Error Delay (seconds)",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "column_break_zkteco_sync",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "00:00;14:05",
+   "description": "Semicolon-separated HH:MM times for scheduled batch uploads (TransTimes= in handshake)",
+   "fieldname": "trans_times",
+   "fieldtype": "Data",
+   "label": "Upload Times"
+  },
+  {
+   "default": "1",
+   "description": "Minutes between batch data uploads (TransInterval= in handshake)",
+   "fieldname": "trans_interval",
+   "fieldtype": "Int",
+   "label": "Upload Interval (minutes)",
+   "non_negative": 1
+  },
+  {
    "description": "Configure your biometric devices to push data to these URLs",
    "fieldname": "section_endpoints",
    "fieldtype": "Section Break",
@@ -126,11 +174,15 @@
    "fieldname": "on_premises_http_listener_column",
    "fieldtype": "Column Break",
    "label": "On Premises HTTP Listener"
+  },
+  {
+   "fieldname": "column_break_ziga",
+   "fieldtype": "Column Break"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-03-11 21:49:10.312105",
+ "modified": "2026-03-12 11:06:09.316190",
  "modified_by": "Administrator",
  "module": "Biometric Integration",
  "name": "Attendance Integration Settings",

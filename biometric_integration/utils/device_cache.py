@@ -46,6 +46,11 @@ def invalidate_device_cache(sn: str) -> None:
     frappe.cache.delete_value(f"biometric:last_sync_id:{sn}")
 
 
+def invalidate_user_sync_cache(pin: str, device_id: str) -> None:
+    """Call when an Attendance Device User's device link is manually changed."""
+    frappe.cache.delete_value(f"biometric:user_synced:{pin}:{device_id}")
+
+
 # ── Last contact (debounced write) ────────────────────────────────────────────
 
 def touch_device(sn: str) -> None:

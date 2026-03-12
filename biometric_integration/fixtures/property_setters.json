@@ -1,0 +1,26 @@
+[
+ {
+  "doctype": "Property Setter",
+  "name": "Employee Checkin-device_id-fieldtype",
+  "doctype_or_field": "DocField",
+  "doc_type": "Employee Checkin",
+  "field_name": "device_id",
+  "property": "fieldtype",
+  "value": "Link",
+  "property_type": "Select",
+  "owner": "Administrator",
+  "modified_by": "Administrator"
+ },
+ {
+  "doctype": "Property Setter",
+  "name": "Employee Checkin-device_id-options",
+  "doctype_or_field": "DocField",
+  "doc_type": "Employee Checkin",
+  "field_name": "device_id",
+  "property": "options",
+  "value": "Attendance Device",
+  "property_type": "Text",
+  "owner": "Administrator",
+  "modified_by": "Administrator"
+ }
+]

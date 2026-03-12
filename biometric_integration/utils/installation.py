@@ -4,6 +4,28 @@ import logging
 import shutil
 from frappe.utils import get_sites
 
+_ZKTECO_DEFAULTS = {
+    "device_poll_delay": 10,
+    "device_error_delay": 30,
+    "trans_times": "00:00;14:05",
+    "trans_interval": 1,
+}
+
+
+def after_migrate():
+    """Set default values for ZKTeco sync parameters if not already configured."""
+    try:
+        for field, default in _ZKTECO_DEFAULTS.items():
+            frappe.db.sql(
+                """INSERT INTO `tabSingles` (doctype, field, value)
+                   VALUES ('Attendance Integration Settings', %s, %s)
+                   ON DUPLICATE KEY UPDATE value = IF(value IS NULL OR value = '', VALUES(value), value)""",
+                (field, str(default)),
+            )
+        frappe.db.commit()
+    except Exception as exc:
+        logging.warning(f"biometric_integration after_migrate: could not set defaults: {exc}")
+
 def after_uninstall():
     """Cleanup assets directory created by the biometric_integration app only if no site uses it."""
     app_name = "biometric_integration"

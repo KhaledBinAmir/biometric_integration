@@ -142,14 +142,21 @@ def _handle_realtime_glog(payload: dict, ctx: dict) -> Reply:
             return _fail_bytes(), 200, {"response_code": "ERROR"}
 
         user_id = str(payload.get("user_id", "")).lstrip("0") or str(payload.get("user_id", ""))
-        ts = datetime.strptime(payload["io_time"], "%Y-%m-%d %H:%M:%S")
+        # EBKN sends io_time in UTC; convert to site timezone for storage
+        ts = _utc_to_site_local(datetime.strptime(payload["io_time"], "%Y-%m-%d %H:%M:%S"))
         log_type = "IN" if payload.get("io_mode") == 1 else "OUT"
+
+        # EBKN may send verify_type: 1=FP, 4=Face, 15=Card, etc.
+        _EBKN_VERIFY = {1: "Fingerprint", 4: "Face", 15: "Card", 6: "Password"}
+        verify_raw = payload.get("verify_type") or payload.get("verifyType") or payload.get("auth_type")
+        biometric_method = _EBKN_VERIFY.get(int(verify_raw), "Other") if verify_raw is not None else None
 
         create_employee_checkin(
             device_pin=user_id,
             timestamp=ts,
             device_id=dev_id,
             log_type=log_type,
+            biometric_method=biometric_method,
         )
         maybe_log(dev_id, "Attendance", "IN", f"PIN={user_id} {log_type} at {ts}",
                   user_pin=user_id, raw_data=ctx.get("raw_dump"))
@@ -163,6 +170,7 @@ def _handle_receive_cmd(payload: dict, ctx: dict) -> Reply:
     dev_id = ctx["dev_id"]
     trans_id = ctx["trans_id"]
     try:
+        _store_ebkn_capabilities(dev_id, payload)
         cmd = process_device_command(dev_id)
         if not cmd:
             return _ok_bytes(), 200, _resp_headers(trans_id=trans_id)
@@ -191,12 +199,16 @@ def _handle_send_cmd_result(payload: dict, ctx: dict) -> Reply:
         cmd_doc.device_response = (
             f"{cmd_doc.device_response}\n{line}" if cmd_doc.device_response else line
         )
+        from frappe.utils import now_datetime
         if cmd_return_code == "OK":
             # blk_no_raw is None (single-block) or "0" (final assembled block) — both mean done
             if blk_no_raw is None or blk_no_raw == "0":
-                from frappe.utils import now_datetime
                 cmd_doc.status = "Success"
                 cmd_doc.closed_on = now_datetime()
+        else:
+            # Explicit failure from device — don't retry, mark Failed immediately
+            cmd_doc.status = "Failed"
+            cmd_doc.closed_on = now_datetime()
         cmd_doc.save(ignore_permissions=True)
         frappe.db.commit()
 
@@ -211,6 +223,14 @@ def _handle_send_cmd_result(payload: dict, ctx: dict) -> Reply:
                 user_id=str(payload.get("user_id", "")).lstrip("0") or str(payload.get("user_id", "")),
                 blob=full_payload,
             )
+
+        # If this was a Sync User List command, process the returned user IDs
+        if (
+            cmd_doc.command_type == "Sync User List"
+            and cmd_return_code == "OK"
+            and (blk_no_raw is None or blk_no_raw == "0")
+        ):
+            _process_ebkn_user_id_list(dev_id, payload)
     except frappe.DoesNotExistError:
         frappe.log_error(
             title="EBKN send_cmd_result: command not found",
@@ -426,3 +446,102 @@ def _get_header(headers, *names: str) -> str | None:
         if val:
             return val
     return None
+
+
+def _process_ebkn_user_id_list(dev_id: str, payload: dict) -> None:
+    """Process GET_USER_ID_LIST response: create stub users and queue Get Enroll Data.
+
+    EBKN returns a list of user IDs (as ints or strings) under key "user_id_list"
+    or similar — the exact key name may vary by firmware. We try common variants.
+    """
+    from biometric_integration.services.checkin import _ensure_device_user_synced
+    user_ids = (
+        payload.get("user_id_list")
+        or payload.get("userIdList")
+        or payload.get("user_ids")
+        or []
+    )
+    if not isinstance(user_ids, list):
+        frappe.log_error(
+            title="EBKN GET_USER_ID_LIST: unexpected payload format",
+            message=f"dev_id={dev_id} payload keys={list(payload.keys())}",
+        )
+        return
+
+    count = 0
+    for raw_id in user_ids:
+        pin = str(raw_id).lstrip("0") or str(raw_id)
+        try:
+            _ensure_device_user_synced(pin, dev_id)
+            count += 1
+        except Exception as exc:
+            frappe.log_error(
+                title="EBKN User List Sync Error",
+                message=f"dev_id={dev_id} pin={pin}: {exc}",
+            )
+    maybe_log(dev_id, "Sync", "IN", f"Sync User List: {count} users processed from dev_id={dev_id}")
+
+
+def _utc_to_site_local(naive_utc: datetime) -> datetime:
+    """Convert a naive UTC datetime to a naive site-timezone datetime.
+
+    EBKN devices always send timestamps in UTC.  Frappe stores Employee Checkin
+    times as naive datetimes in the site timezone.  This converts UTC → site local
+    and strips the tzinfo so Frappe handles it correctly.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import timezone as _tz
+        site_tz_name = frappe.utils.get_system_timezone()
+        utc_aware = naive_utc.replace(tzinfo=_tz.utc)
+        site_aware = utc_aware.astimezone(ZoneInfo(site_tz_name))
+        return site_aware.replace(tzinfo=None)
+    except Exception:
+        return naive_utc  # fall back to as-is if zoneinfo unavailable
+
+
+def _store_ebkn_capabilities(dev_id: str, payload: dict) -> None:
+    """Persist EBKN device capabilities from the receive_cmd body.
+
+    EBKN sends fk_name, fk_time, fk_info:{firmware, supported_enroll_data, fk_bin_data_lib}
+    in the body of every receive_cmd poll.  We use a Redis flag to avoid writing to the DB
+    on every poll — only writes once per 24 hours.  The cache is bypassed if DB fields are
+    still empty, so a fresh device always gets its capabilities stored on first poll.
+    """
+    cache_key = f"ebkn:caps_stored:{dev_id}"
+
+    updates: dict = {}
+    fk_name = payload.get("fk_name")
+    if fk_name:
+        updates["mac_address"] = str(fk_name)
+
+    fk_info = payload.get("fk_info") or {}
+    if isinstance(fk_info, dict):
+        firmware = fk_info.get("firmware")
+        if firmware:
+            updates["firmware_version"] = str(firmware)
+        supported = fk_info.get("supported_enroll_data")
+        if supported:
+            updates["supported_biometrics"] = str(supported)
+
+    if not updates:
+        frappe.cache.set_value(cache_key, "1", expires_in_sec=86400)
+        return
+
+    # Skip DB write if cached AND all fields are already populated
+    if frappe.cache.get_value(cache_key):
+        existing = frappe.db.get_value(
+            "Attendance Device", dev_id,
+            list(updates.keys()),
+            as_dict=True,
+        ) or {}
+        if all(existing.get(k) for k in updates):
+            return  # already stored, no change needed
+
+    try:
+        frappe.db.set_value("Attendance Device", dev_id, updates)
+        frappe.db.commit()
+    except Exception:
+        pass  # don't break command polling on a capabilities save failure
+
+    frappe.cache.set_value(cache_key, "1", expires_in_sec=86400)

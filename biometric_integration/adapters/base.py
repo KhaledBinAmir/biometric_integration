@@ -51,8 +51,12 @@ class AbstractDeviceAdapter(ABC):
         return "\n".join(parts)
 
     @staticmethod
-    def text(body: str, status: int = 200) -> Response:
-        return Response(body, mimetype="text/plain", status=status)
+    def text(body: str, status: int = 200, headers: dict = None) -> Response:
+        r = Response(body, mimetype="text/plain", status=status)
+        if headers:
+            for k, v in headers.items():
+                r.headers[k] = v
+        return r
 
     @staticmethod
     def binary(body: bytes, status: int = 200, headers: dict = None) -> Response:

@@ -19,13 +19,19 @@
   "column_break_2",
   "device_ip",
   "device_port",
+  "section_capabilities",
+  "firmware_version",
+  "mac_address",
+  "supported_biometrics",
+  "column_break_cap",
+  "max_users",
+  "device_timezone",
   "section_assignment",
   "project",
   "branch",
   "column_break_3",
   "section_sync",
-  "disable_employee_sync",
-  "max_command_attempts"
+  "disable_employee_sync"
  ],
  "fields": [
   {
@@ -112,6 +118,45 @@
    "label": "Device Port"
   },
   {
+   "fieldname": "section_capabilities",
+   "fieldtype": "Section Break",
+   "label": "Capabilities"
+  },
+  {
+   "fieldname": "firmware_version",
+   "fieldtype": "Data",
+   "label": "Firmware Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "mac_address",
+   "fieldtype": "Data",
+   "label": "MAC Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "supported_biometrics",
+   "fieldtype": "Small Text",
+   "label": "Supported Biometrics",
+   "read_only": 1,
+   "description": "Comma-separated list e.g. FP,FACE,CARD — populated automatically on device registration"
+  },
+  {
+   "fieldname": "column_break_cap",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "max_users",
+   "fieldtype": "Int",
+   "label": "Max Users",
+   "read_only": 1
+  },
+  {
+   "fieldname": "device_timezone",
+   "fieldtype": "Autocomplete",
+   "label": "Device Timezone"
+  },
+  {
    "fieldname": "section_assignment",
    "fieldtype": "Section Break",
    "label": "Assignment"
@@ -143,14 +188,6 @@
    "fieldtype": "Check",
    "label": "Disable Employee Sync",
    "description": "Prevents Enroll/Delete User commands from being queued for this device"
-  },
-  {
-   "default": "3",
-   "fieldname": "max_command_attempts",
-   "fieldtype": "Int",
-   "label": "Max Command Attempts",
-   "non_negative": 1,
-   "reqd": 1
   }
  ],
  "index_web_pages_for_search": 1,

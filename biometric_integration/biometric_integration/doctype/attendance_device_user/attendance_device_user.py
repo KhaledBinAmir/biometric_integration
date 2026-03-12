@@ -146,6 +146,16 @@ def _write_enrollment_file(
     blob_field: str,
     data: bytes,
 ) -> None:
+    # Delete the old File doc before writing a new one to prevent orphaned files
+    old_url = user_doc.get(blob_field)
+    if old_url:
+        old_file = frappe.db.get_value("File", {"file_url": old_url}, "name")
+        if old_file:
+            try:
+                frappe.delete_doc("File", old_file, ignore_permissions=True, force=True)
+            except Exception:
+                pass  # non-fatal — new file will still be written
+
     file_doc = frappe.get_doc({
         "doctype": "File",
         "file_name": f"{brand.lower()}_enroll_{user_doc.user_id}_{device_sn}.bin",

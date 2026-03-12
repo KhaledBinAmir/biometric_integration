@@ -35,18 +35,11 @@ def _enqueue_initial_enrollments(device: "AttendanceDevice") -> None:
     if not blob_field:
         return
 
-    users = frappe.get_all(
+    all_users = frappe.get_all(
         "Attendance Device User",
         filters={blob_field: ["is", "set"]},
         pluck="name",
     )
-    # Also include users with allow_in_all_devices
-    all_device_users = frappe.get_all(
-        "Attendance Device User",
-        filters={"allow_in_all_devices": 1, blob_field: ["is", "set"]},
-        pluck="name",
-    )
-    all_users = list(set(users) | set(all_device_users))
 
     for user_id in all_users:
         _add_command(device.name, user_id, brand, "Enroll User")

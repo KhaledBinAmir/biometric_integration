@@ -1,0 +1,30 @@
+[
+ {
+  "doctype": "Custom Field",
+  "name": "Employee Checkin-biometric_method",
+  "dt": "Employee Checkin",
+  "fieldname": "biometric_method",
+  "label": "Biometric Method",
+  "fieldtype": "Select",
+  "options": "\nFingerprint\nFace\nCard\nPassword\nOther",
+  "insert_after": "device_id",
+  "read_only": 1,
+  "module": "Biometric Integration",
+  "owner": "Administrator",
+  "modified_by": "Administrator"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Employee Checkin-attendance_device",
+  "dt": "Employee Checkin",
+  "fieldname": "attendance_device",
+  "label": "Attendance Device",
+  "fieldtype": "Link",
+  "options": "Attendance Device",
+  "insert_after": "biometric_method",
+  "read_only": 1,
+  "module": "Biometric Integration",
+  "owner": "Administrator",
+  "modified_by": "Administrator"
+ }
+]

@@ -9,7 +9,7 @@ Device traffic is handled by renderers.py (page_renderer hook), NOT here.
 from __future__ import annotations
 
 import frappe
-from frappe.utils import get_url
+from frappe.utils import cint, get_url
 
 
 @frappe.whitelist()
@@ -73,6 +73,7 @@ def check_proxy_compatibility() -> dict:
 @frappe.whitelist()
 def enable_proxy(port: int) -> dict:
     """Enable the nginx HTTP listener on the given port."""
+    frappe.only_for("System Manager")
     from biometric_integration.proxy.configurator import enable_listener_logic
     ok, message = enable_listener_logic(frappe.local.site, int(port))
     return {"success": ok, "message": message}
@@ -81,6 +82,7 @@ def enable_proxy(port: int) -> dict:
 @frappe.whitelist()
 def disable_proxy() -> dict:
     """Disable the nginx HTTP listener."""
+    frappe.only_for("System Manager")
     from biometric_integration.proxy.configurator import disable_listener_logic
     ok, message = disable_listener_logic(frappe.local.site)
     return {"success": ok, "message": message}
@@ -129,6 +131,38 @@ def enqueue_user_enrollments(user_id: str) -> str:
             add_command(device_id, user_doc.name, brand, "Enroll User")
             count += 1
     return f"Queued {count} Enroll User command(s)."
+
+
+@frappe.whitelist()
+def create_device_command(device_id: str, command_type: str) -> str:
+    """Create and return the name of a new Attendance Device Command."""
+    brand = frappe.db.get_value("Attendance Device", device_id, "brand")
+    if not brand:
+        frappe.throw(f"Device not found: {device_id}")
+    cmd = frappe.new_doc("Attendance Device Command")
+    cmd.attendance_device = device_id
+    cmd.brand = brand
+    cmd.command_type = command_type
+    cmd.status = "Pending"
+    cmd.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return cmd.name
+
+
+@frappe.whitelist()
+def get_device_form_settings() -> dict:
+    """Return Attendance Integration Settings values needed by the Attendance Device form."""
+    settings = frappe.get_cached_doc("Attendance Integration Settings")
+    return {"push_timezone_to_device": cint(settings.push_timezone_to_device)}
+
+
+@frappe.whitelist()
+def get_command_status(cmd_name: str) -> dict:
+    """Return the current status and closed_on of a command (for real-time polling)."""
+    status, closed_on = frappe.db.get_value(
+        "Attendance Device Command", cmd_name, ["status", "closed_on"]
+    ) or ("", None)
+    return {"status": status, "closed_on": str(closed_on) if closed_on else None}
 
 
 @frappe.whitelist()
