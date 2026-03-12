@@ -41,8 +41,10 @@ from biometric_integration.services.checkin import create_employee_checkin
 from biometric_integration.services.command_processor import process_device_command
 from biometric_integration.biometric_integration.doctype.attendance_device_user.attendance_device_user import (
     get_or_create_user_by_pin,
+    save_enrollment_data,
 )
 from biometric_integration.biometric_integration.doctype.attendance_device_log.attendance_device_log import maybe_log
+from biometric_integration.biometric_integration.doctype.attendance_integration_settings.attendance_integration_settings import get_erp_employee_id
 from biometric_integration.utils.device_cache import is_registered_device
 
 Reply = Tuple[bytes, int, Dict[str, str]]
@@ -105,6 +107,7 @@ class EBKNAdapter(AbstractDeviceAdapter):
             "cmd_return_code": cmd_return_code.upper(),
             "blk_no_raw": blk_no_raw,
             "full_payload": full_payload,
+            "raw_dump": self.raw_dump(),
         }
 
         handler = {
@@ -134,8 +137,9 @@ def _handle_realtime_glog(payload: dict, ctx: dict) -> Reply:
         if not is_registered_device(dev_id):
             maybe_log(dev_id, "Error", "IN",
                       f"Attendance from unregistered device dev_id={dev_id} — ignored",
+                      raw_data=ctx.get("raw_dump"),
                       force=True)
-            return _ok_bytes(), 200, _resp_headers(trans_id=trans_id)
+            return _fail_bytes(), 200, {"response_code": "ERROR"}
 
         user_id = str(payload.get("user_id", "")).lstrip("0") or str(payload.get("user_id", ""))
         ts = datetime.strptime(payload["io_time"], "%Y-%m-%d %H:%M:%S")
@@ -147,7 +151,8 @@ def _handle_realtime_glog(payload: dict, ctx: dict) -> Reply:
             device_id=dev_id,
             log_type=log_type,
         )
-        maybe_log(dev_id, "Attendance", "IN", f"PIN={user_id} {log_type} at {ts}", user_pin=user_id)
+        maybe_log(dev_id, "Attendance", "IN", f"PIN={user_id} {log_type} at {ts}",
+                  user_pin=user_id, raw_data=ctx.get("raw_dump"))
         return (_ok_bytes(), 200, _resp_headers(trans_id=trans_id))
     except Exception as exc:
         frappe.log_error(title="EBKN realtime_glog Error", message=str(exc))
@@ -187,9 +192,8 @@ def _handle_send_cmd_result(payload: dict, ctx: dict) -> Reply:
             f"{cmd_doc.device_response}\n{line}" if cmd_doc.device_response else line
         )
         if cmd_return_code == "OK":
-            if blk_no_raw is not None:
-                pass  # more blocks coming
-            else:
+            # blk_no_raw is None (single-block) or "0" (final assembled block) — both mean done
+            if blk_no_raw is None or blk_no_raw == "0":
                 from frappe.utils import now_datetime
                 cmd_doc.status = "Success"
                 cmd_doc.closed_on = now_datetime()
@@ -229,8 +233,9 @@ def _handle_realtime_enroll(payload: dict, ctx: dict) -> Reply:
         if not is_registered_device(dev_id):
             maybe_log(dev_id, "Error", "IN",
                       f"Enrollment from unregistered device dev_id={dev_id} — ignored",
+                      raw_data=ctx.get("raw_dump"),
                       force=True)
-            return _ok_bytes(), 200, _resp_headers(trans_id=trans_id)
+            return _fail_bytes(), 200, {"response_code": "ERROR"}
         user_doc = get_or_create_user_by_pin(user_id)
         # Ensure device is in user's device list
         if not any(row.attendance_device == dev_id for row in user_doc.get("devices", [])):
@@ -252,7 +257,8 @@ def _handle_realtime_enroll(payload: dict, ctx: dict) -> Reply:
 
         # Queue Get Enroll Data command to fetch the full template
         _queue_get_enroll_data(dev_id, user_doc.name)
-        maybe_log(dev_id, "Enrollment", "IN", f"New enroll event for PIN={user_id}", user_pin=user_id)
+        maybe_log(dev_id, "Enrollment", "IN", f"New enroll event for PIN={user_id}",
+                  user_pin=user_id, raw_data=ctx.get("raw_dump"))
         return _ok_bytes(), 200, _resp_headers(trans_id=trans_id)
     except Exception as exc:
         frappe.db.rollback()
@@ -270,24 +276,13 @@ def _queue_get_enroll_data(dev_id: str, user_doc_name: str) -> None:
 
 
 def _store_enrollment_blob(dev_id: str, user_id: str, blob: bytes) -> None:
+    """Save EBKN enrollment blob and propagate to other EBKN devices."""
     try:
         doc_name = frappe.db.get_value("Attendance Device User", {"user_id": user_id})
         if not doc_name:
             return
         user_doc = frappe.get_doc("Attendance Device User", doc_name)
-        file_doc = frappe.get_doc({
-            "doctype": "File",
-            "file_name": f"ebkn_enroll_{user_id}.bin",
-            "is_private": 1,
-            "content": blob,
-            "attached_to_doctype": "Attendance Device User",
-            "attached_to_name": user_doc.name,
-        })
-        file_doc.insert(ignore_permissions=True)
-        user_doc.ebkn_enroll_data = file_doc.file_url
-        for row in user_doc.devices:
-            if row.brand == "EBKN":
-                row.enroll_data_source = 1 if row.attendance_device == dev_id else 0
+        save_enrollment_data(user_doc, "EBKN", dev_id, blob)
         user_doc.save(ignore_permissions=True)
         frappe.db.commit()
     except Exception as exc:
