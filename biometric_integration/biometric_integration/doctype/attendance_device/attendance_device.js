@@ -8,11 +8,12 @@ frappe.ui.form.on('Attendance Device', {
 
 		// --- Status indicator ---
 		if (frm.doc.last_contact) {
+			const user_dt = frappe.datetime.convert_to_user_tz(frm.doc.last_contact);
 			const age_min = Math.round(
-				(Date.now() - new Date(frappe.datetime.convert_to_user_tz(frm.doc.last_contact)).getTime()) / 60000
+				(Date.now() - new Date(user_dt).getTime()) / 60000
 			);
 			const color = age_min < 5 ? 'green' : age_min < 60 ? 'yellow' : 'red';
-			frm.dashboard.add_indicator(`Last contact: ${age_min} min ago`, color);
+			frm.dashboard.add_indicator(`Last contact: ${frappe.datetime.prettyDate(user_dt)}`, color);
 		} else {
 			frm.dashboard.add_indicator('Never contacted this server', 'grey');
 		}
