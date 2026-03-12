@@ -189,10 +189,18 @@ def _migrate_commands(errors: list):
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 def _migrate_settings(errors: list):
-    if not frappe.db.exists("DocType", "Biometric Integration Settings"):
+    if not frappe.db.table_exists("Biometric Integration Settings"):
         return
     try:
-        old = frappe.get_single("Biometric Integration Settings")
+        # Use raw SQL — the v1 python module no longer exists, so
+        # frappe.get_single("Biometric Integration Settings") would fail.
+        old = frappe.db.sql(
+            "SELECT * FROM `tabBiometric Integration Settings` LIMIT 1",
+            as_dict=True,
+        )
+        if not old:
+            return
+        old = old[0]
         settings = frappe.get_single("Attendance Integration Settings")
         settings.maximum_command_attempts = old.get("maximum_no_of_attempts_for_commands") or 3
         settings.force_close_after_days = old.get("force_close_after") or 30
