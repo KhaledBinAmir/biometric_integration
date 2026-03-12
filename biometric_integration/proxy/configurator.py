@@ -3,8 +3,9 @@
 
 """Enable/disable the nginx HTTP listener for biometric devices.
 
-Writes to a separate /etc/nginx/conf.d/biometric_listener.conf file so the
+Writes to a separate conf file inside nginx's conf.d/ directory so the
 config survives `bench setup nginx` (which regenerates config/nginx.conf).
+The nginx config path is auto-detected via `nginx -V`.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from functools import lru_cache
 
 import frappe
 from frappe.utils import get_site_path
@@ -20,7 +22,52 @@ from frappe.installer import update_site_config
 from biometric_integration.proxy.template import get_server_block
 
 LISTENER_PORT_KEY = "biometric_listener_port"
-NGINX_CONF_PATH = "/etc/nginx/conf.d/biometric_listener.conf"
+CONF_FILENAME = "biometric_listener.conf"
+
+
+@lru_cache(maxsize=1)
+def _detect_nginx_conf_dir() -> str | None:
+    """Detect nginx's conf.d directory from `nginx -V` output.
+
+    Parses --conf-path to find the nginx config root, then looks for
+    conf.d/ directory. Works across standard installs, custom builds,
+    and most containerised setups.
+
+    Returns the conf.d path, or None if not found.
+    """
+    try:
+        result = subprocess.run(
+            ["nginx", "-V"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        # nginx -V writes to stderr
+        output = result.stderr or result.stdout or ""
+        for part in output.split():
+            if part.startswith("--conf-path="):
+                # e.g. --conf-path=/etc/nginx/nginx.conf → /etc/nginx
+                nginx_root = os.path.dirname(part.split("=", 1)[1])
+                conf_d = os.path.join(nginx_root, "conf.d")
+                if os.path.isdir(conf_d):
+                    return conf_d
+    except Exception:
+        pass
+
+    # Fallback: check common locations
+    for candidate in ["/etc/nginx/conf.d", "/usr/local/etc/nginx/conf.d"]:
+        if os.path.isdir(candidate):
+            return candidate
+
+    return None
+
+
+def _get_conf_path() -> str | None:
+    """Return the full path for the biometric listener nginx config file."""
+    conf_dir = _detect_nginx_conf_dir()
+    if not conf_dir:
+        return None
+    return os.path.join(conf_dir, CONF_FILENAME)
 
 
 # ---------------------------------------------------------------------------
@@ -29,14 +76,18 @@ NGINX_CONF_PATH = "/etc/nginx/conf.d/biometric_listener.conf"
 
 def enable_listener_logic(site: str, port: int) -> tuple[bool, str]:
     """Write a standalone nginx config file and reload nginx."""
+    conf_path = _get_conf_path()
+    if not conf_path:
+        return False, "Could not detect nginx conf.d directory. Is nginx installed?"
+
     # Check if already enabled with same port
     existing_port = _get_site_config(LISTENER_PORT_KEY)
-    if existing_port == port and os.path.exists(NGINX_CONF_PATH):
+    if existing_port == port and os.path.exists(conf_path):
         return True, f"Listener for {site} on port {port} already exists."
 
     block = get_server_block(site, port)
 
-    ok, msg = _write_nginx_conf(block)
+    ok, msg = _write_nginx_conf(conf_path, block)
     if not ok:
         return False, msg
 
@@ -45,7 +96,7 @@ def enable_listener_logic(site: str, port: int) -> tuple[bool, str]:
     ok, msg = _reload_nginx()
     if not ok:
         # Roll back: remove the config file we just wrote
-        _remove_nginx_conf()
+        _remove_nginx_conf(conf_path)
         _remove_site_config(LISTENER_PORT_KEY)
         return False, msg
 
@@ -55,10 +106,12 @@ def enable_listener_logic(site: str, port: int) -> tuple[bool, str]:
 def disable_listener_logic(site: str) -> tuple[bool, str]:
     """Remove the biometric nginx config file and reload."""
     port = _get_site_config(LISTENER_PORT_KEY)
-    if not port and not os.path.exists(NGINX_CONF_PATH):
+    conf_path = _get_conf_path()
+    if not port and (not conf_path or not os.path.exists(conf_path)):
         return True, "Listener is not enabled."
 
-    _remove_nginx_conf()
+    if conf_path:
+        _remove_nginx_conf(conf_path)
     _remove_site_config(LISTENER_PORT_KEY)
 
     # Also clean up legacy block from config/nginx.conf if present
@@ -80,11 +133,11 @@ def get_status_logic(site: str) -> dict:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _write_nginx_conf(content: str) -> tuple[bool, str]:
-    """Write to /etc/nginx/conf.d/ using sudo tee."""
+def _write_nginx_conf(path: str, content: str) -> tuple[bool, str]:
+    """Write nginx config using sudo tee."""
     try:
         result = subprocess.run(
-            ["sudo", "tee", NGINX_CONF_PATH],
+            ["sudo", "tee", path],
             input=content,
             capture_output=True,
             text=True,
@@ -101,18 +154,18 @@ def _write_nginx_conf(content: str) -> tuple[bool, str]:
         )
         if test.returncode != 0:
             # Invalid config — remove it
-            _remove_nginx_conf()
+            _remove_nginx_conf(path)
             return False, f"nginx config test failed: {test.stderr}"
         return True, ""
     except Exception as e:
         return False, f"Failed to write nginx config: {e}"
 
 
-def _remove_nginx_conf() -> None:
+def _remove_nginx_conf(path: str) -> None:
     """Remove the biometric nginx config file."""
     try:
         subprocess.run(
-            ["sudo", "rm", "-f", NGINX_CONF_PATH],
+            ["sudo", "rm", "-f", path],
             capture_output=True,
             timeout=10,
         )

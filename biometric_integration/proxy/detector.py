@@ -19,18 +19,19 @@ import shutil
 import subprocess
 
 import frappe
-from frappe.utils import get_bench_path
+
+from biometric_integration.proxy.configurator import _detect_nginx_conf_dir
 
 
 def check_proxy_compatibility() -> dict:
     result = {
         "is_frappe_cloud": False,
         "nginx_installed": False,
-        "nginx_conf_writable": False,
+        "conf_dir_found": False,
         "sudo_reload_available": False,
         "compatible": False,
         "recommendation": "show_generated_config",
-        "nginx_conf_path": None,
+        "nginx_conf_dir": None,
     }
 
     # 1. Frappe Cloud detection
@@ -46,12 +47,10 @@ def check_proxy_compatibility() -> dict:
     # 2. Is nginx installed?
     result["nginx_installed"] = bool(shutil.which("nginx"))
 
-    # 3. Is bench nginx.conf writable?
-    nginx_conf = os.path.join(get_bench_path(), "config", "nginx.conf")
-    result["nginx_conf_path"] = nginx_conf
-    result["nginx_conf_writable"] = (
-        os.path.exists(nginx_conf) and os.access(nginx_conf, os.W_OK)
-    )
+    # 3. Can we find nginx conf.d directory?
+    conf_dir = _detect_nginx_conf_dir()
+    result["nginx_conf_dir"] = conf_dir
+    result["conf_dir_found"] = conf_dir is not None
 
     # 4. Can we reload nginx without a password prompt?
     if result["nginx_installed"]:
@@ -66,7 +65,7 @@ def check_proxy_compatibility() -> dict:
             result["sudo_reload_available"] = False
 
     # Determine recommendation
-    if result["nginx_installed"] and result["nginx_conf_writable"]:
+    if result["nginx_installed"] and result["conf_dir_found"]:
         result["compatible"] = True
         result["recommendation"] = "ui_configure"
     else:
