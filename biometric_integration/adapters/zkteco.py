@@ -463,21 +463,30 @@ def _get_frappe_tz_offset() -> str:
         return "+0000"
 
 
-def _get_frappe_tz_hours() -> int:
-    """Return the Frappe system timezone UTC offset as a whole-hour integer (e.g. 1 for UTC+1).
+def _get_frappe_tz_hours() -> str:
+    """Return the Frappe system timezone UTC offset for ZKTeco's TimeZone= parameter.
 
-    Used for TimeZone= in handshake and push responses.
-    ZKTeco expects an integer representing UTC offset hours.
-    Falls back to 0 on any error.
+    Returns an integer string for whole-hour zones (e.g. "1" for UTC+1, "8" for UTC+8),
+    or a decimal string for fractional zones (e.g. "5.5" for India UTC+5:30,
+    "5.75" for Nepal UTC+5:45).  The spec only shows integer examples but ZKTeco's
+    own software sends decimals for India — older firmware that can't parse a float
+    will truncate to the integer part, which is no worse than sending the integer.
+
+    DST-aware: uses datetime.now(ZoneInfo(...)) so the value updates automatically
+    at DST transition boundaries (next device handshake picks up the new offset).
+    Falls back to "0" on any error.
     """
     try:
         from zoneinfo import ZoneInfo
         tz_name = frappe.utils.get_time_zone()
         now_local = datetime.now(ZoneInfo(tz_name))
-        offset_seconds = int(now_local.utcoffset().total_seconds())
-        return offset_seconds // 3600
+        offset_hours = now_local.utcoffset().total_seconds() / 3600
+        # Emit integer string if whole hour, decimal string otherwise
+        if offset_hours == int(offset_hours):
+            return str(int(offset_hours))
+        return str(offset_hours)
     except Exception:
-        return 0
+        return "0"
 
 
 def _parse_kv_tsv(line: str) -> dict:
