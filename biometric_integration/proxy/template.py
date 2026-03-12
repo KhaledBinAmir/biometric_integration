@@ -21,8 +21,8 @@ def get_server_block(site: str, port: int, gunicorn_port: int = 8000) -> str:
     except Exception:
         hostname = site
 
-    return f"""
-# -- BIOMETRIC_LISTENER_START_{site}_{port} --
+    return f"""# Biometric Integration — HTTP listener for {site} on port {port}
+# Auto-generated — do not edit manually. Use Attendance Integration Settings to manage.
 server {{
     listen {port};
     server_name _;
@@ -41,5 +41,4 @@ server {{
         proxy_connect_timeout 10;
     }}
 }}
-# -- BIOMETRIC_LISTENER_END_{site}_{port} --
 """
