@@ -269,6 +269,13 @@ def _ebkn_pri(user_doc) -> int:
     return _EBKN_PRI.get((user_doc.get("privilege") if user_doc else None) or "Normal User", 0)
 
 
+def _zk_passwd(user_doc, fallback: str = "") -> str:
+    """Keypad password for this user. The field wins; otherwise keep whatever the
+    captured enrollment blob had. Sent on every USERINFO push — previously this was
+    hardcoded empty, so each sync wiped the user's device password."""
+    return str((user_doc.get("device_password") if user_doc else None) or fallback or "")
+
+
 def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
     cmd_id = cmd_doc.name
     pin = user_doc.user_id
@@ -299,7 +306,7 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
         return "\n".join(lines)
 
     if cmd_doc.command_type == "Update User":
-        return f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri={_zk_pri(user_doc)}\tPasswd=\tCard=0"
+        return f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri={_zk_pri(user_doc)}\tPasswd={_zk_passwd(user_doc)}\tCard=0"
 
     if cmd_doc.command_type == "Enroll User":
         blob = _load_blob(user_doc.zkteco_enroll_data)
@@ -328,7 +335,7 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
             enforce = 1 if _raw is None else cint(_raw)  # default ON when unset
 
             lines = [
-                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri={_zk_pri(user_doc)}\tPasswd={passwd}\tCard={card}",
+                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri={_zk_pri(user_doc)}\tPasswd={_zk_passwd(user_doc, passwd)}\tCard={card}",
             ]
             skipped = []
             for bio in enroll.get("biometrics", []):
@@ -402,7 +409,7 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
         elif enroll and "fid" in enroll:
             # Intermediate format — single FP JSON {"fid", "size", "tmp"}
             lines = [
-                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri={_zk_pri(user_doc)}\tPasswd=\tCard=0",
+                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri={_zk_pri(user_doc)}\tPasswd={_zk_passwd(user_doc)}\tCard=0",
                 f"C:{cmd_id}:DATA UPDATE BIODATA\tPIN={pin}\tFID={enroll['fid']}\tSize={enroll['size']}\tValid=1\tTMP={enroll['tmp']}",
             ]
             return "\n".join(lines)
@@ -411,7 +418,7 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
             tmp = blob.decode("utf-8").strip()
             size = len(base64.b64decode(tmp + "=="))
             return "\n".join([
-                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri={_zk_pri(user_doc)}\tPasswd=\tCard=0",
+                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri={_zk_pri(user_doc)}\tPasswd={_zk_passwd(user_doc)}\tCard=0",
                 f"C:{cmd_id}:DATA UPDATE BIODATA\tPIN={pin}\tFID=0\tSize={size}\tValid=1\tTMP={tmp}",
             ])
     return None

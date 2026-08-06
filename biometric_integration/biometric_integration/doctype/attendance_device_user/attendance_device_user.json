@@ -10,6 +10,7 @@
   "employee",
   "employee_name",
   "privilege",
+  "device_password",
   "column_break_1",
   "allow_in_all_devices",
   "section_devices",
@@ -97,6 +98,12 @@
    "options": "Normal User\nEnroller\nAdmin\nSuper Admin",
    "default": "Normal User",
    "description": "Rights this user has ON the device keypad/menu. Pushed with every user sync, so an admin is never silently demoted. Normal User = clock in/out only."
+  },
+  {
+   "fieldname": "device_password",
+   "fieldtype": "Data",
+   "label": "Device Password",
+   "description": "Numeric code this user can type on the device keypad (PIN + password) as an alternative to their fingerprint. Pushed with every user sync so it is not wiped. Leave blank for none."
   }
  ],
  "index_web_pages_for_search": 1,
