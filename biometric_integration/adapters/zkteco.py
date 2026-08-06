@@ -791,6 +791,11 @@ def _localize_device_timestamp(naive_ts: datetime, sn: str | None) -> datetime:
         return naive_ts  # fall back to as-is
 
 
+# Stamp values that must never be stored as a cursor: "0" means "resend everything"
+# and 9999 is a known suppress-all sentinel on this fleet.
+_SENTINEL_STAMPS = {"0", "9999"}
+
+
 def _save_stamp(sn: str | None, field: str, stamp: str | None) -> None:
     """Persist the device's upload cursor AFTER its batch was ingested.
 
@@ -802,7 +807,11 @@ def _save_stamp(sn: str | None, field: str, stamp: str | None) -> None:
     if not sn or stamp is None:
         return
     stamp = str(stamp).strip()
-    if not stamp or stamp == "0":
+    if not stamp or stamp in _SENTINEL_STAMPS:
+        # "0" means "send everything" and 9999 is a known suppress-all sentinel on
+        # this fleet (see _build_config_options). Echoing either back would be wrong:
+        # 0 restarts the full re-dump, 9999 can silence uploads entirely. Storing
+        # neither leaves the cursor blank, which is the safe "ask for everything".
         return
     try:
         current = frappe.db.get_value("Attendance Device", sn, field)
