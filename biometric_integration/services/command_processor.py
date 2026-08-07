@@ -360,18 +360,37 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
                                 f"may reject with Return=-1."
                             ),
                         )
-                    # Classic FINGERTMP command. Verified Return=0 on the live fleet;
-                    # supported by legacy firmware that rejects the unified
-                    # `DATA UPDATE biodata` (Return=-1) and by modern FP firmware.
-                    # Needs only FID/Size/Valid/TMP, all captured by the FINGERTMP pull.
-                    lines.append(
-                        f"C:{cmd_id}:DATA UPDATE FINGERTMP"
-                        f"\tPIN={pin}"
-                        f"\tFID={bio.get('no', 0)}"
-                        f"\tSize={bio.get('size', 0)}"
-                        f"\tValid={bio.get('valid', 1)}"
-                        f"\tTMP={bio['tmp']}"
-                    )
+                    # Push in the format the template was CAPTURED in. A unified
+                    # (biodata, majorver>=10) template pushed via classic FINGERTMP is
+                    # accepted with Return=0 but stored structurally wrong — the device
+                    # then rejects every match as "Illegal Fingerprint" (proven live on
+                    # the SenseFP M2 swap, 2026-08-07: pushed finger = illegal, the same
+                    # finger locally enrolled = fine). Classic-captured templates keep
+                    # the classic FINGERTMP push (verified Return=0 on legacy firmware,
+                    # which conversely rejects unified biodata with Return=-1).
+                    if mv >= 10:
+                        lines.append(
+                            f"C:{cmd_id}:DATA UPDATE biodata"
+                            f"\tpin={pin}"
+                            f"\tno={bio.get('no', 0)}"
+                            f"\tindex={bio.get('index', 0)}"
+                            f"\tvalid={bio.get('valid', 1)}"
+                            f"\tduress={bio.get('duress', 0)}"
+                            f"\ttype={btype}"
+                            f"\tmajorver={mv}"
+                            f"\tminorver={bio.get('minorver', 0)}"
+                            f"\tformat={bio.get('format', 0)}"
+                            f"\ttmp={bio['tmp']}"
+                        )
+                    else:
+                        lines.append(
+                            f"C:{cmd_id}:DATA UPDATE FINGERTMP"
+                            f"\tPIN={pin}"
+                            f"\tFID={bio.get('no', 0)}"
+                            f"\tSize={bio.get('size', 0)}"
+                            f"\tValid={bio.get('valid', 1)}"
+                            f"\tTMP={bio['tmp']}"
+                        )
                 else:
                     # Face / palm / other modalities exist only on newer firmware,
                     # which uses the unified template (lowercase fields + `format`,
