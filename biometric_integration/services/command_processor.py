@@ -368,29 +368,23 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
                     # finger locally enrolled = fine). Classic-captured templates keep
                     # the classic FINGERTMP push (verified Return=0 on legacy firmware,
                     # which conversely rejects unified biodata with Return=-1).
-                    if mv >= 10:
-                        lines.append(
-                            f"C:{cmd_id}:DATA UPDATE biodata"
-                            f"\tpin={pin}"
-                            f"\tno={bio.get('no', 0)}"
-                            f"\tindex={bio.get('index', 0)}"
-                            f"\tvalid={bio.get('valid', 1)}"
-                            f"\tduress={bio.get('duress', 0)}"
-                            f"\ttype={btype}"
-                            f"\tmajorver={mv}"
-                            f"\tminorver={bio.get('minorver', 0)}"
-                            f"\tformat={bio.get('format', 0)}"
-                            f"\ttmp={bio['tmp']}"
-                        )
-                    else:
-                        lines.append(
-                            f"C:{cmd_id}:DATA UPDATE FINGERTMP"
-                            f"\tPIN={pin}"
-                            f"\tFID={bio.get('no', 0)}"
-                            f"\tSize={bio.get('size', 0)}"
-                            f"\tValid={bio.get('valid', 1)}"
-                            f"\tTMP={bio['tmp']}"
-                        )
+                    # Size MUST be the decoded template's byte length. biodata-captured
+                    # templates carry no `size` field, so this used to emit Size=0 —
+                    # the device ACKs (Return=0) but stores a truncated template and
+                    # then rejects every match as "Illegal Fingerprint". (The unified
+                    # `DATA UPDATE biodata` verb is no alternative: this firmware
+                    # rejects it outright with Return=-1 — verified live 2026-08-07.)
+                    size = cint(bio.get("size", 0))
+                    if not size and bio.get("tmp"):
+                        size = len(base64.b64decode(bio["tmp"] + "=" * (-len(bio["tmp"]) % 4)))
+                    lines.append(
+                        f"C:{cmd_id}:DATA UPDATE FINGERTMP"
+                        f"\tPIN={pin}"
+                        f"\tFID={bio.get('no', 0)}"
+                        f"\tSize={size}"
+                        f"\tValid={bio.get('valid', 1)}"
+                        f"\tTMP={bio['tmp']}"
+                    )
                 else:
                     # Face / palm / other modalities exist only on newer firmware,
                     # which uses the unified template (lowercase fields + `format`,
