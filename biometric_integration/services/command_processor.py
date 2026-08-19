@@ -318,28 +318,6 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
         except (json.JSONDecodeError, UnicodeDecodeError):
             enroll = None
 
-        # ── EXPERIMENT 2026-08-08 (revert after): multi-verb template-write probe.
-        # FINGERTMP ACKs Return=0 but stores nothing (menu-verified) and lowercase
-        # `DATA UPDATE biodata` is rejected (-1). Push the SAME native template via
-        # three untried verb/casing permutations to three spare finger slots; the
-        # device menu then shows which permutation actually stores. PIN 1003 only.
-        if enroll and enroll.get("version") == 2 and pin == "1003" and enroll.get("biometrics"):
-            b = enroll["biometrics"][0]
-            t = b["tmp"]
-            size = len(base64.b64decode(t + "=" * (-len(t) % 4)))
-            probe = [
-                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName=Wouter Simons\tPri=14\tPasswd={_zk_passwd(user_doc)}\tCard=0",
-                # verb 1: legacy FP table -> slot 1
-                f"C:{cmd_id}:DATA UPDATE FP\tPIN={pin}\tFID=1\tSize={size}\tValid=1\tTMP={t}",
-                # verb 2: BIODATA upper + CamelCase keys (device's own emission format) -> slot 2
-                f"C:{cmd_id}:DATA UPDATE BIODATA\tPin={pin}\tNo=2\tIndex=0\tValid=1\tDuress=0\tType=1"
-                f"\tMajorVer={b.get('majorver', 13)}\tMinorVer={b.get('minorver', 0)}\tFormat={b.get('format', 0)}\tTmp={t}",
-                # verb 3: biodata lower verb + CamelCase keys -> slot 3
-                f"C:{cmd_id}:DATA UPDATE biodata\tPin={pin}\tNo=3\tIndex=0\tValid=1\tDuress=0\tType=1"
-                f"\tMajorVer={b.get('majorver', 13)}\tMinorVer={b.get('minorver', 0)}\tFormat={b.get('format', 0)}\tTmp={t}",
-            ]
-            return "\n".join(probe)
-
         if enroll and enroll.get("version") == 2:
             # Current format — full JSON with all biometrics + credentials
             card = enroll.get("card", "0")
@@ -390,23 +368,41 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
                     # finger locally enrolled = fine). Classic-captured templates keep
                     # the classic FINGERTMP push (verified Return=0 on legacy firmware,
                     # which conversely rejects unified biodata with Return=-1).
-                    # Size MUST be the decoded template's byte length. biodata-captured
-                    # templates carry no `size` field, so this used to emit Size=0 —
-                    # the device ACKs (Return=0) but stores a truncated template and
-                    # then rejects every match as "Illegal Fingerprint". (The unified
-                    # `DATA UPDATE biodata` verb is no alternative: this firmware
-                    # rejects it outright with Return=-1 — verified live 2026-08-07.)
-                    size = cint(bio.get("size", 0))
-                    if not size and bio.get("tmp"):
-                        size = len(base64.b64decode(bio["tmp"] + "=" * (-len(bio["tmp"]) % 4)))
-                    lines.append(
-                        f"C:{cmd_id}:DATA UPDATE FINGERTMP"
-                        f"\tPIN={pin}"
-                        f"\tFID={bio.get('no', 0)}"
-                        f"\tSize={size}"
-                        f"\tValid={bio.get('valid', 1)}"
-                        f"\tTMP={bio['tmp']}"
-                    )
+                    if mv >= 10:
+                        # Unified (biodata-captured) template. The ONLY verb that truly
+                        # stores it is `DATA UPDATE BIODATA` with CamelCase keys — the
+                        # exact format the device itself emits on local enrollment.
+                        # Proven live 2026-08-19: pushed template appeared in the user's
+                        # menu and MATCHED the living finger. Pitfalls, all verified on
+                        # SenseFP M2 fw ZAM70: FINGERTMP ACKs Return=0 but stores
+                        # NOTHING; lowercase keys (pin=/tmp=) are rejected Return=-1.
+                        lines.append(
+                            f"C:{cmd_id}:DATA UPDATE BIODATA"
+                            f"\tPin={pin}"
+                            f"\tNo={bio.get('no', 0)}"
+                            f"\tIndex={bio.get('index', 0)}"
+                            f"\tValid={bio.get('valid', 1)}"
+                            f"\tDuress={bio.get('duress', 0)}"
+                            f"\tType={btype}"
+                            f"\tMajorVer={mv}"
+                            f"\tMinorVer={bio.get('minorver', 0)}"
+                            f"\tFormat={bio.get('format', 0)}"
+                            f"\tTmp={bio['tmp']}"
+                        )
+                    else:
+                        # Legacy (FINGERTMP-captured) template for legacy firmware.
+                        # Size MUST be the decoded byte length (Size=0 stores garbage).
+                        size = cint(bio.get("size", 0))
+                        if not size and bio.get("tmp"):
+                            size = len(base64.b64decode(bio["tmp"] + "=" * (-len(bio["tmp"]) % 4)))
+                        lines.append(
+                            f"C:{cmd_id}:DATA UPDATE FINGERTMP"
+                            f"\tPIN={pin}"
+                            f"\tFID={bio.get('no', 0)}"
+                            f"\tSize={size}"
+                            f"\tValid={bio.get('valid', 1)}"
+                            f"\tTMP={bio['tmp']}"
+                        )
                 else:
                     # Face / palm / other modalities exist only on newer firmware,
                     # which uses the unified template (lowercase fields + `format`,
