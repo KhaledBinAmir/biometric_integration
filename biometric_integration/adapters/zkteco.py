@@ -480,6 +480,11 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 # Helpers
 # ------------------------------------------------------------------
 
+# ZKTeco privilege byte -> Attendance Device User.privilege label. Mirrors
+# _ZK_PRI in services/command_processor.py, which maps the label back for pushes.
+_ZK_PRI_LABEL = {0: "Normal User", 2: "Enroller", 6: "Admin", 14: "Super Admin"}
+
+
 def _handle_operlog_user(sn: str, line: str) -> int:
     """Handle a USER or ENROLL_USER line from OPERLOG.
 
@@ -505,6 +510,19 @@ def _handle_operlog_user(sn: str, line: str) -> int:
         emp = get_employee_by_pin(pin)
         if emp:
             user_doc.employee = emp
+
+    # Capture the privilege the DEVICE reports. Without this, privilege was a
+    # write-only concept: nothing ever read it back, while every USERINFO push
+    # asserted a level from our own record. An admin promoted on the keypad was
+    # therefore silently demoted by the next sync — which is how MKE's whole
+    # 38-device fleet ended up with no admin at all, leaving every device menu
+    # open to anyone (reported Sep 2026). Capturing it makes the device the
+    # source of truth for a promotion done locally.
+    pri = data.get("Pri") or data.get("Privilege")
+    if pri is not None and str(pri).strip() != "":
+        level = _ZK_PRI_LABEL.get(cint(pri))
+        if level and user_doc.get("privilege") != level:
+            user_doc.privilege = level
 
     user_doc.save(ignore_permissions=True)
     frappe.db.commit()
