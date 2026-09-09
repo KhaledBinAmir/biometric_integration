@@ -105,9 +105,10 @@ def add_command(device_id: str, user_id: str, brand: str, command_type: str) -> 
     # That is exactly what buried MKE in Sep 2026: 683 device/user pairs, the
     # same pair queued up to 352 times in 6 hours. This caps any repeat of that
     # class at one command per pair per window, whatever the cause upstream.
-    window = cint(
-        frappe.db.get_single_value("Attendance Integration Settings", "command_dedupe_minutes")
-    ) or DEFAULT_COMMAND_DEDUPE_MINUTES
+    # Unset falls back to the default; an explicit 0 genuinely disables the guard
+    # (the field says so), which is why the two are distinguished here.
+    raw = frappe.db.get_single_value("Attendance Integration Settings", "command_dedupe_minutes")
+    window = DEFAULT_COMMAND_DEDUPE_MINUTES if raw is None or raw == "" else cint(raw)
     if window > 0 and frappe.db.sql(
         """SELECT name FROM `tabAttendance Device Command`
            WHERE attendance_device=%(dev)s AND attendance_device_user=%(usr)s
