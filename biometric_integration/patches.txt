@@ -9,3 +9,4 @@ biometric_integration.patches.v2_1.rename_unknown_pin_setting
 biometric_integration.patches.v2_0.migrate_from_v1
 biometric_integration.patches.v2_1.drop_duplicate_checkin_device_field
 biometric_integration.patches.v2_1.move_ebkn_fk_name_to_device_model
+biometric_integration.patches.v2_2.add_command_poll_index

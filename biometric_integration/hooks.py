@@ -23,6 +23,8 @@ after_migrate = ["biometric_integration.utils.installation.after_migrate"]
 scheduler_events = {
     "daily": [
         "biometric_integration.services.command_processor.force_close_stale_commands",
+        "biometric_integration.services.command_processor.purge_completed_commands",
+        "biometric_integration.services.command_processor.resync_pending_command_flags",
     ],
 }
 

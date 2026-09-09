@@ -7,6 +7,14 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import cint, add_to_date, now_datetime, get_datetime
 
+# Suppression window for identical commands (see the circuit breaker in
+# add_command). Overridable via Attendance Integration Settings.
+DEFAULT_COMMAND_DEDUPE_MINUTES = 10
+
+# Terminal commands are deleted in chunks this size, committing between each, so
+# a large backlog never holds a long lock on a live device-polling table.
+_PURGE_CHUNK = 5000
+
 
 class AttendanceDeviceCommand(Document):
     @staticmethod
@@ -86,6 +94,29 @@ def add_command(device_id: str, user_id: str, brand: str, command_type: str) -> 
             "brand": brand,
             "command_type": command_type,
             "status": "Pending",
+        },
+    ):
+        return
+
+    # Circuit breaker: suppress a command identical to one raised moments ago.
+    # The Pending check above is not enough — a command that already completed
+    # leaves nothing to collide with, so a feedback loop (device echoes a push,
+    # the echo re-triggers the push) can re-raise the same command endlessly.
+    # That is exactly what buried MKE in Sep 2026: 683 device/user pairs, the
+    # same pair queued up to 352 times in 6 hours. This caps any repeat of that
+    # class at one command per pair per window, whatever the cause upstream.
+    window = cint(
+        frappe.db.get_single_value("Attendance Integration Settings", "command_dedupe_minutes")
+    ) or DEFAULT_COMMAND_DEDUPE_MINUTES
+    if window > 0 and frappe.db.sql(
+        """SELECT name FROM `tabAttendance Device Command`
+           WHERE attendance_device=%(dev)s AND attendance_device_user=%(usr)s
+             AND command_type=%(typ)s AND creation > %(since)s LIMIT 1""",
+        {
+            "dev": device_id,
+            "usr": user_id,
+            "typ": command_type,
+            "since": add_to_date(now_datetime(), minutes=-window),
         },
     ):
         return

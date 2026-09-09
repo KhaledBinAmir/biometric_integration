@@ -11,6 +11,8 @@
   "section_commands",
   "maximum_command_attempts",
   "force_close_after_days",
+  "command_retention_days",
+  "command_dedupe_minutes",
   "column_break_1",
   "enable_device_log",
   "section_zkteco_sync",
@@ -74,6 +76,20 @@
    "non_negative": 1
   },
   {
+   "fieldname": "command_retention_days",
+   "fieldtype": "Int",
+   "label": "Delete Completed Commands After (Days)",
+   "default": "30",
+   "description": "Successful and failed commands older than this are deleted daily in batches. Keeps the command table small, which is what the device-poll query reads on every poll."
+  },
+  {
+   "fieldname": "command_dedupe_minutes",
+   "fieldtype": "Int",
+   "label": "Suppress Identical Commands For (Minutes)",
+   "default": "10",
+   "description": "An identical command (same device, user and type) raised again within this window is dropped. Guards against feedback loops where a device echoes a change back and re-triggers the push. 0 disables the guard."
+  },
+  {
    "fieldname": "column_break_1",
    "fieldtype": "Column Break"
   },
@@ -88,7 +104,7 @@
    "fieldname": "section_zkteco_sync",
    "fieldtype": "Section Break",
    "label": "ZKTeco Sync Parameters",
-   "description": "These values are pushed to ZKTeco devices on every handshake. EBKN devices use real-time push and do not have a polling cycle — these settings do not apply to EBKN."
+   "description": "These values are pushed to ZKTeco devices on every handshake. EBKN devices use real-time push and do not have a polling cycle \u2014 these settings do not apply to EBKN."
   },
   {
    "default": "10",
@@ -132,7 +148,7 @@
   },
   {
    "default": "1",
-   "description": "A fingerprint template only matches on a device whose fingerprint algorithm version equals the version it was captured on. When enabled, Enroll User skips (does not push) any fingerprint whose algorithm version differs from the target device's version, and logs it — the user is still registered and can enrol the finger locally. Disable to push anyway (the device usually rejects the mismatched template with Return=-1).",
+   "description": "A fingerprint template only matches on a device whose fingerprint algorithm version equals the version it was captured on. When enabled, Enroll User skips (does not push) any fingerprint whose algorithm version differs from the target device's version, and logs it \u2014 the user is still registered and can enrol the finger locally. Disable to push anyway (the device usually rejects the mismatched template with Return=-1).",
    "fieldname": "enforce_fp_version_match",
    "fieldtype": "Check",
    "label": "Enforce Fingerprint Version Match"

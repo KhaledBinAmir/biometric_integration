@@ -15,11 +15,44 @@ from typing import Any, Optional, Union
 import frappe
 from frappe.utils import cint, now, now_datetime, get_datetime, add_to_date
 
+from biometric_integration.biometric_integration.doctype.attendance_device_command.attendance_device_command import (
+    _PURGE_CHUNK,
+)
+
 # A command stays "Sent" (not re-emitted) for this long after it is handed to a
 # device, giving the device time to acknowledge before we re-send. If no ack
 # arrives within the window it is re-sent (reliability); once the device reports
 # a result the ack handlers move it to Success/Failed.
 COMMAND_RESEND_SECONDS = 60
+
+# The device's `has_pending_command` flag is a cache, so it is re-verified against
+# the table at most once per device per this interval (see _device_has_work).
+FLAG_RECHECK_SECONDS = 300
+
+
+def _device_has_work(device_sn: str) -> bool:
+    """Cheap gate: can this poll skip the command lookup entirely?
+
+    Devices poll every ~10s forever, and almost every poll finds an empty queue.
+    The `has_pending_command` flag was being written on command creation but never
+    read, so each of those idle polls still ran the full lookup — 38 devices doing
+    that against a 660k-row table is what saturated MKE's 8 cores overnight.
+
+    The flag is only a cache, so a stale 0 must not strand a command: once every
+    FLAG_RECHECK_SECONDS a device is let through to do one real lookup, which
+    self-heals the flag either way. Worst case is one query per device per 5
+    minutes instead of one per poll.
+    """
+    if frappe.db.get_value("Attendance Device", device_sn, "has_pending_command"):
+        return True
+    key = f"biometric:cmd_recheck:{device_sn}"
+    try:
+        if frappe.cache().get_value(key):
+            return False
+        frappe.cache().set_value(key, 1, expires_in_sec=FLAG_RECHECK_SECONDS)
+    except Exception:
+        return True  # no cache available — never skip, correctness over cost
+    return True
 
 
 def _claim_next_command(device_sn: str) -> Optional[str]:
@@ -33,8 +66,15 @@ def _claim_next_command(device_sn: str) -> Optional[str]:
     settings = frappe.get_cached_doc("Attendance Integration Settings")
     max_attempts = cint(settings.maximum_command_attempts) or 3
     cutoff = add_to_date(now_datetime(), seconds=-COMMAND_RESEND_SECONDS)
+    # `status IN (...)` is stated first and separately so it stays a sargable
+    # leading-column condition on the (attendance_device, status, creation)
+    # index; the resend window is then a residual filter over the handful of
+    # non-terminal rows that come back. Folding the window into one big OR (as
+    # this once did) hides the status predicate from the optimizer, which then
+    # falls back to scanning the table in `creation` order on every poll.
     claimable = (
-        "(status='Pending' OR (status='Sent' AND (sent_on IS NULL OR sent_on < %(cutoff)s)))"
+        "status IN ('Pending','Sent') "
+        "AND (status='Pending' OR sent_on IS NULL OR sent_on < %(cutoff)s)"
     )
     # Bounded loop: fail any candidate that has hit the attempt cap (the raw-SQL
     # claim below bypasses the doctype's before_save auto-fail), then take the next.
@@ -46,8 +86,17 @@ def _claim_next_command(device_sn: str) -> Optional[str]:
             {"sn": device_sn, "cutoff": cutoff},
         )
         if not rows:
-            # Queue drained — clear the sticky "pending command" indicator.
-            if frappe.db.get_value("Attendance Device", device_sn, "has_pending_command"):
+            # Nothing claimable. Only clear the sticky flag when the device truly
+            # has no non-terminal command left: a Sent command still inside its
+            # resend window is unclaimable but NOT done, and clearing the flag on
+            # it would strand it once the poll gate below starts trusting the flag.
+            if frappe.db.get_value("Attendance Device", device_sn, "has_pending_command") and not (
+                frappe.db.sql(
+                    """SELECT name FROM `tabAttendance Device Command`
+                       WHERE attendance_device=%(sn)s AND status IN ('Pending','Sent') LIMIT 1""",
+                    {"sn": device_sn},
+                )
+            ):
                 frappe.db.set_value("Attendance Device", device_sn, "has_pending_command", 0,
                                     update_modified=False)
                 frappe.db.commit()
@@ -98,6 +147,9 @@ def process_device_command(device_sn: str) -> Optional[Union[str, dict]]:
     ZKTeco commands return a string (ADMS protocol lines).
     EBKN commands return a dict with cmd_code/trans_id/body.
     """
+    if not _device_has_work(device_sn):
+        return None
+
     command_name = _claim_next_command(device_sn)
     if not command_name:
         return None
@@ -559,3 +611,60 @@ def _handle_build_failure(cmd_doc: Any, exc: Exception) -> None:
     except Exception as inner:
         frappe.db.rollback()
         frappe.log_error(title="Command Error Handler Failed", message=str(inner))
+
+
+def purge_completed_commands() -> None:
+    """Delete completed commands past their retention window, in batches.
+
+    The command table is read by every device on every poll, so its size is a
+    direct cost on the hot path — MKE reached 660k rows (240 MB) and pinned all
+    eight cores. Frappe's stock log clearing only ran at 90 days and deleted in a
+    single unbounded statement; this runs at the configured retention (default 30
+    days) and commits per chunk, so a large backlog never holds a long lock on a
+    live table.
+    """
+    days = cint(
+        frappe.db.get_single_value("Attendance Integration Settings", "command_retention_days")
+    ) or 30
+    cutoff = add_to_date(now_datetime(), days=-days)
+    deleted = 0
+    while True:
+        frappe.db.sql(
+            """DELETE FROM `tabAttendance Device Command`
+               WHERE status IN ('Success','Failed','Closed') AND modified < %(cutoff)s
+               LIMIT %(chunk)s""",
+            {"cutoff": cutoff, "chunk": _PURGE_CHUNK},
+        )
+        n = frappe.db._cursor.rowcount
+        frappe.db.commit()
+        deleted += n
+        if n < _PURGE_CHUNK:
+            break
+    if deleted:
+        frappe.logger("biometric_integration").info(
+            f"purge_completed_commands: deleted {deleted} commands older than {days}d"
+        )
+
+
+def resync_pending_command_flags() -> None:
+    """Recompute every device's `has_pending_command` flag from the table.
+
+    The flag is what lets an idle poll skip the command lookup entirely, so a
+    stale value has real consequences: stuck at 1 it costs a query per poll, stuck
+    at 0 it can delay a command until the gate's periodic recheck. Both are
+    self-correcting, and this daily sweep keeps them honest. Devices are updated
+    one at a time — a single correlated UPDATE deadlocks against the constant
+    last_contact writes from the fleet (error 1020 on MKE).
+    """
+    for sn, flag in frappe.db.sql(
+        """SELECT d.name, ifnull(d.has_pending_command, 0) FROM `tabAttendance Device` d"""
+    ):
+        should = 1 if frappe.db.sql(
+            """SELECT name FROM `tabAttendance Device Command`
+               WHERE attendance_device=%(sn)s AND status IN ('Pending','Sent') LIMIT 1""",
+            {"sn": sn},
+        ) else 0
+        if cint(flag) != should:
+            frappe.db.set_value("Attendance Device", sn, "has_pending_command", should,
+                                update_modified=False)
+            frappe.db.commit()

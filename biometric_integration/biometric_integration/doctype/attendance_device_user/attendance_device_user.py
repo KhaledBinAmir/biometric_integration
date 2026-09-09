@@ -142,6 +142,20 @@ def _save_zkteco_enrollment(
     _write_enrollment_file(user_doc, "ZKTeco", device_sn, "zkteco_enroll_data", payload)
 
 
+def _read_enrollment_blob(file_url: str) -> Optional[bytes]:
+    """Return the stored enrollment bytes for a file_url, or None if unreadable."""
+    if not file_url:
+        return None
+    file_name = frappe.db.get_value("File", {"file_url": file_url}, "name")
+    if not file_name:
+        return None
+    try:
+        raw = frappe.get_doc("File", file_name).get_content()
+        return raw.encode("utf-8") if isinstance(raw, str) else raw
+    except Exception:
+        return None
+
+
 def _write_enrollment_file(
     user_doc: "AttendanceDeviceUser",
     brand: str,
@@ -149,8 +163,21 @@ def _write_enrollment_file(
     blob_field: str,
     data: bytes,
 ) -> None:
-    # Delete the old File doc before writing a new one to prevent orphaned files
     old_url = user_doc.get(blob_field)
+
+    # Idempotence guard — the fix for the command storm (MKE, Sep 2026: 250k
+    # commands/day, load 19). Devices echo back every enrollment we push to them
+    # (Realtime=1 + TransFlag ChgUser/ChgFP). Each echo landed here, and because a
+    # fresh File insert gets a random URL suffix, `has_value_changed(blob_field)`
+    # was ALWAYS true — even for byte-identical data — so on_update fanned an
+    # `Enroll User` out to every other device, which echoed in turn: a 38-device
+    # ping-pong that never settled. If the incoming blob is identical to what we
+    # already store, this is such an echo: write nothing, save nothing, fan out
+    # nothing. Real changes fall through untouched.
+    if old_url and _read_enrollment_blob(old_url) == data:
+        return
+
+    # Delete the old File doc before writing a new one to prevent orphaned files
     if old_url:
         old_file = frappe.db.get_value("File", {"file_url": old_url}, "name")
         if old_file:
