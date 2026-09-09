@@ -138,8 +138,31 @@ def _save_zkteco_enrollment(
     device_sn: str,
     data: Dict[str, Any],
 ) -> None:
-    payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    # sort_keys keeps the serialization canonical, so the same enrollment always
+    # produces the same bytes no matter which handler assembled it.
+    payload = json.dumps(data, ensure_ascii=False, sort_keys=True).encode("utf-8")
     _write_enrollment_file(user_doc, "ZKTeco", device_sn, "zkteco_enroll_data", payload)
+
+
+def _blobs_equivalent(old: Optional[bytes], new: bytes) -> bool:
+    """Is the stored enrollment blob the same enrollment as the incoming one?
+
+    Byte equality is not enough. The enrollment JSON is rebuilt from a parsed
+    dict on every merge, and the handlers that construct a biometric entry
+    (operlog FP, operlog biodata, querydata) each assemble their keys in a
+    different order — so the same finger, reported by two devices, serialized
+    differently. That made every echo look like a change and kept the fan-out
+    loop alive even after the byte-level guard. Compare parsed structures for
+    JSON (ZKTeco), fall back to bytes for opaque binary blobs (EBKN).
+    """
+    if old is None:
+        return False
+    if old == new:
+        return True
+    try:
+        return json.loads(old.decode("utf-8")) == json.loads(new.decode("utf-8"))
+    except Exception:
+        return False
 
 
 def _read_enrollment_blob(file_url: str) -> Optional[bytes]:
@@ -174,7 +197,7 @@ def _write_enrollment_file(
     # ping-pong that never settled. If the incoming blob is identical to what we
     # already store, this is such an echo: write nothing, save nothing, fan out
     # nothing. Real changes fall through untouched.
-    if old_url and _read_enrollment_blob(old_url) == data:
+    if old_url and _blobs_equivalent(_read_enrollment_blob(old_url), data):
         return
 
     # Delete the old File doc before writing a new one to prevent orphaned files
