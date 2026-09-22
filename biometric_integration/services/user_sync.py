@@ -5,8 +5,9 @@
 User sync service: reacts to Employee lifecycle events and propagates changes
 to biometric devices.
 
-  Employee save with create_user_in_device=1  → create/link Device User for
-                                                selected device, queue Update User
+  Employee save with create_user_in_device=1  → create/link Device User on every
+                                                enabled device of the employee's
+                                                company, queue Update User on each
   Employee attendance_device_id changes        → same as above (if checkbox is on)
   Employee goes inactive/left                  → queue Delete User on all devices
   Employee reactivated                         → queue Enroll User on all devices
@@ -62,7 +63,7 @@ def on_employee_update(doc, method=None) -> None:
 
     if not before:
         # New employee — handle device user creation if checkbox set
-        if doc.get("create_user_in_device") and doc.get("biometric_device"):
+        if doc.get("create_user_in_device"):
             _handle_device_user_creation(doc)
         return
 
@@ -94,7 +95,7 @@ def on_employee_update(doc, method=None) -> None:
         (not checkbox_before)
         or (device_id_after and device_id_before != device_id_after)
     ):
-        if doc.get("biometric_device") and device_id_after:
+        if device_id_after:
             _handle_device_user_creation(doc)
 
 
@@ -111,21 +112,52 @@ def on_employee_linked(user_doc) -> None:
 # Device user creation
 # ---------------------------------------------------------------------------
 
+def _resolve_target_devices(employee_doc) -> dict:
+    """Return {device_id: brand} for every device this employee belongs on.
+
+    Device assignment follows COMPANY: an employee belongs on every enabled
+    device owned by their own company. A site with two clocks at one location
+    (or a second unit added later) then needs no per-employee device picking —
+    ticking the enrolment box is enough, and the person appears on all of them.
+
+    `biometric_device` remains an explicit override: it is always included, so
+    an employee can be put on a device outside their company when that is
+    genuinely wanted. Disabled devices are never targeted, which keeps a unit
+    that is switched off (awaiting RMA, or being repurposed) out of every sync.
+    """
+    targets = {}
+    company = employee_doc.get("company")
+    if company:
+        for d in frappe.get_all(
+            "Attendance Device",
+            filters={"company": company, "disabled": 0},
+            fields=["name", "brand"],
+        ):
+            if d.brand:
+                targets[d.name] = d.brand
+
+    picked = employee_doc.get("biometric_device")
+    if picked and picked not in targets:
+        brand = frappe.db.get_value("Attendance Device", picked, "brand")
+        disabled = frappe.db.get_value("Attendance Device", picked, "disabled")
+        if brand and not disabled:
+            targets[picked] = brand
+    return targets
+
+
 def _handle_device_user_creation(employee_doc) -> None:
-    """Create or link Attendance Device User and queue Update User on the selected device.
+    """Create or link the Attendance Device User and queue Update User per device.
 
     - Finds existing Device User by attendance_device_id (user_id)
     - Creates one if not found, links employee
-    - Adds the selected biometric_device to child table (if not already there)
-    - Queues Update User command on that device
+    - Adds every target device to the child table (if not already there)
+    - Queues Update User on each, so the person exists on the clock by PIN and
+      name. Fingerprints are enrolled at the device afterwards and captured back
+      automatically; no template is needed to provision a user.
     """
     device_id = str(employee_doc.get("attendance_device_id") or "").strip()
-    target_device = employee_doc.get("biometric_device")
-    if not device_id or not target_device:
-        return
-
-    brand = frappe.db.get_value("Attendance Device", target_device, "brand")
-    if not brand:
+    targets = _resolve_target_devices(employee_doc)
+    if not device_id or not targets:
         return
 
     # Find or create the Device User record
@@ -137,11 +169,12 @@ def _handle_device_user_creation(employee_doc) -> None:
             user_doc.employee = employee_doc.name
             user_doc.employee_name = employee_doc.employee_name
             changed = True
-        # Add device to child table if not already there
+        # Add any missing target device to the child table
         existing_devices = {row.attendance_device for row in user_doc.get("devices", [])}
-        if target_device not in existing_devices:
-            user_doc.append("devices", {"attendance_device": target_device, "brand": brand})
-            changed = True
+        for device_id_t, brand_t in targets.items():
+            if device_id_t not in existing_devices:
+                user_doc.append("devices", {"attendance_device": device_id_t, "brand": brand_t})
+                changed = True
         if changed:
             user_doc.save(ignore_permissions=True)
     else:
@@ -150,11 +183,14 @@ def _handle_device_user_creation(employee_doc) -> None:
             "user_id": device_id,
             "employee": employee_doc.name,
             "employee_name": employee_doc.employee_name,
-            "devices": [{"attendance_device": target_device, "brand": brand}],
+            "devices": [
+                {"attendance_device": d, "brand": b} for d, b in targets.items()
+            ],
         })
         user_doc.insert(ignore_permissions=True)
 
-    add_command(target_device, user_doc.name, brand, "Update User")
+    for device_id_t, brand_t in targets.items():
+        add_command(device_id_t, user_doc.name, brand_t, "Update User")
     frappe.db.commit()
 
 
