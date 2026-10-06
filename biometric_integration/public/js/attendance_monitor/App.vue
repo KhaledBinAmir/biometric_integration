@@ -212,7 +212,7 @@ export default {
 			let min = Infinity;
 			let max = -Infinity;
 			for (const r of this.rows) {
-				for (const c of r.checkins) {
+				for (const c of [...r.checkins, ...(r.superseded || [])]) {
 					const t = this.toMs(c.time);
 					if (t < min) min = t;
 					if (t > max) max = t;

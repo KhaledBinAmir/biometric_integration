@@ -130,7 +130,7 @@ def _h(seconds: int) -> float:
 # ---------------------------------------------------------------------------
 
 import frappe
-from frappe.utils import getdate, get_datetime, cint
+from frappe.utils import cint, get_datetime, getdate
 
 _ALLOWED_ROLES = ("Site Supervisor", "HR User", "HR Manager", "System Manager")
 
@@ -278,18 +278,12 @@ def get_attendance_monitor(from_date, to_date=None, company="VGH B.V.",
 
     mode_of = _shift_mode_resolver(list(emp_names), emp_default_shift, from_date, to_date)
 
-    rows = frappe.get_all(
-        "Employee Checkin",
-        filters={"employee": ["in", list(emp_names)],
-                 "time": ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]},
-        fields=["name", "employee", "time"],
-        order_by="time asc",
-    )
+    rows = _punches({"employee": ["in", list(emp_names)],
+                     "time": ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]})
     # group by (employee, date)
     buckets: dict = {}
     for r in rows:
-        d = get_datetime(r.time)
-        buckets.setdefault((r.employee, d.date()), []).append((r.name, d))
+        buckets.setdefault((r.employee, r.time.date()), []).append(r)
 
     out = []
     for (emp, day), items in sorted(buckets.items(), key=lambda x: (emp_names.get(x[0][0], ""), x[0][1])):
@@ -309,6 +303,7 @@ def get_attendance_monitor(from_date, to_date=None, company="VGH B.V.",
                 "mode": mode or mode_of(emp, from_date),
                 "scans": [],
                 "checkins": [],
+                "superseded": [],
                 "work_hours": 0.0,
                 "break_hours": 0.0,
                 "segments": [],
@@ -327,10 +322,19 @@ def get_attendance_monitor(from_date, to_date=None, company="VGH B.V.",
 
 
 def _row_dict(emp, name, dept, day, items, mode, window_seconds=180, expected_punches=4):
-    """Build one employee-day monitor row from `items` = [(checkin_name, datetime)]."""
-    times = [t for _, t in items]
+    """Build one employee-day monitor row from `items`, the day's punches as
+    _punches returns them.
+
+    `checkins` are the punches that count, a MANUAL one from an Attendance
+    Request included (it carries `request`; the page shows it greyed and changes
+    it only through that request). A punch an approved shift correction replaced
+    is listed under `superseded` (greyed on the page) and left out of the totals,
+    as the roster's pay leaves it out."""
+    items = sorted(items, key=lambda p: p.time)
+    counted = [p for p in items if not p.get("superseded_by")]
     is_today = getdate(day) == getdate()
-    res = compute_day(times, window_seconds, expected_punches, mode=mode, is_today=is_today)
+    res = compute_day([p.time for p in counted], window_seconds, expected_punches, mode=mode,
+                      is_today=is_today)
     return {
         "employee": emp,
         "employee_name": name or emp,
@@ -338,7 +342,10 @@ def _row_dict(emp, name, dept, day, items, mode, window_seconds=180, expected_pu
         "date": str(day),
         "mode": mode,
         "scans": [t.isoformat() for t in res["scans"]],
-        "checkins": [{"name": nm, "time": t.isoformat()} for nm, t in sorted(items, key=lambda x: x[1])],
+        "checkins": [{"name": p.name, "time": p.time.isoformat(), "request": p.request}
+                     for p in counted],
+        "superseded": [{"name": p.name, "time": p.time.isoformat(), "superseded_by": p.superseded_by}
+                       for p in items if p.get("superseded_by")],
         "work_hours": _h(res["work_seconds"]),
         "break_hours": _h(res["break_seconds"]),
         "segments": [{"type": s["type"], "start": s["start"].isoformat(), "end": s["end"].isoformat()}
@@ -348,6 +355,59 @@ def _row_dict(emp, name, dept, day, items, mode, window_seconds=180, expected_pu
     }
 
 
+MANUAL_PREFIX = "MANUAL-"
+
+
+def _punches(filters: dict) -> list:
+    """Employee Checkins matching `filters`, oldest first, `time` as a datetime,
+    with what Attendance Requests did to them:
+
+    - `superseded_by`: an approved shift correction (pidyen_roster) replaced the
+      punch. It stays in Employee Checkin as the device recorded it, but no
+      longer counts. The column comes with pidyen_roster; without it nothing is
+      superseded.
+    - `request`: the Attendance Request a MANUAL-<request> punch came from.
+    """
+    fields = ["name", "employee", "time", "device_id"]
+    if frappe.db.has_column("Employee Checkin", "superseded_by"):
+        fields.append("superseded_by")
+    rows = frappe.get_all("Employee Checkin", filters=filters, fields=fields, order_by="time asc")
+    for r in rows:
+        r.time = get_datetime(r.time)
+        r.superseded_by = r.get("superseded_by")
+        r.request = _request_of(r.device_id)
+    return rows
+
+
+def _request_of(device_id) -> Optional[str]:
+    device_id = device_id or ""
+    return device_id[len(MANUAL_PREFIX):] if device_id.startswith(MANUAL_PREFIX) else None
+
+
+def _assert_editable(name: str) -> None:
+    """The monitor does not move or delete a punch an Attendance Request owns:
+    one a shift correction replaced (changing it changes nothing) or one a request
+    added (its cancel removes it again)."""
+    fields = ["device_id"]
+    if frappe.db.has_column("Employee Checkin", "superseded_by"):
+        fields.append("superseded_by")
+    row = frappe.db.get_value("Employee Checkin", name, fields, as_dict=True) or {}
+    if row.get("superseded_by"):
+        frappe.throw(
+            frappe._("This punch was replaced by the correction in Attendance Request {0} and no longer "
+                     "counts. To change the shift's times, cancel or amend that request.").format(
+                row.superseded_by),
+            title=frappe._("Punch replaced by a correction"),
+        )
+    request = _request_of(row.get("device_id"))
+    if request:
+        frappe.throw(
+            frappe._("This punch comes from Attendance Request {0}. To change it, cancel or amend "
+                     "that request.").format(request),
+            title=frappe._("Punch from a request"),
+        )
+
+
 def _employee_day_row(employee: str, day) -> dict:
     """Recompute a single employee-day row (same shape as get_attendance_monitor
     rows) so a correction can patch that row in place — no full reload. Uses the
@@ -355,12 +415,7 @@ def _employee_day_row(employee: str, day) -> dict:
     day = getdate(day)
     emp = frappe.db.get_value("Employee", employee,
                               ["employee_name", "department", "company", "default_shift"], as_dict=True) or {}
-    rows = frappe.get_all(
-        "Employee Checkin",
-        filters={"employee": employee, "time": ["between", [f"{day} 00:00:00", f"{day} 23:59:59"]]},
-        fields=["name", "time"], order_by="time asc",
-    )
-    items = [(r.name, get_datetime(r.time)) for r in rows]
+    items = _punches({"employee": employee, "time": ["between", [f"{day} 00:00:00", f"{day} 23:59:59"]]})
     mode = _shift_mode_resolver([employee], {employee: emp.get("default_shift")}, day, day)(employee, day)
     holiday = _holiday_on(emp.get("company"), day)
 
@@ -371,7 +426,7 @@ def _employee_day_row(employee: str, day) -> dict:
         row = {
             "employee": employee, "employee_name": emp.get("employee_name") or employee,
             "department": emp.get("department") or "", "date": str(day), "mode": mode,
-            "scans": [], "checkins": [], "work_hours": 0.0, "break_hours": 0.0, "segments": [],
+            "scans": [], "checkins": [], "superseded": [], "work_hours": 0.0, "break_hours": 0.0, "segments": [],
             "complete": False, "flag": "on_leave" if leave else "no_punches", "leave_type": leave,
         }
     if holiday:
@@ -469,6 +524,7 @@ def update_checkin(name, time):
     _assert_corrections_enabled()
     row = frappe.db.get_value("Employee Checkin", name, ["employee", "time"], as_dict=True)
     _check_employee(row.employee)
+    _assert_editable(name)
     employee = row.employee
     old_day = getdate(row.time)
     new_dt = get_datetime(time)
@@ -500,6 +556,7 @@ def delete_checkin(name):
     _assert_corrections_enabled()
     doc = frappe.get_doc("Employee Checkin", name)
     _check_employee(doc.employee)
+    _assert_editable(name)
     employee = doc.employee
     day = getdate(doc.time)
 

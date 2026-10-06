@@ -22,16 +22,27 @@
 			<span v-if="segWide(s)" class="tr-seg-dur">{{ dur(s.b - s.a) }}</span>
 		</div>
 
-		<!-- IN/OUT trim handles -->
+		<!-- punches a shift correction replaced: shown greyed, never counted or edited -->
+		<div
+			v-for="g in supersededMarks"
+			:key="g.name"
+			class="tr-mark tr-mark-superseded"
+			:style="{ left: pct(g.ms) }"
+			:title="fmt(g.ms) + ' · ' + t('replaced by') + ' ' + g.by"
+			@mousedown.prevent.stop
+			@click.stop="explain(g)"
+		></div>
+
+		<!-- IN/OUT trim handles (a punch from an Attendance Request is greyed and locked) -->
 		<div
 			v-for="m in markers"
 			:key="m.name"
 			class="tr-mark"
-			:class="['tr-mark-' + m.io, { 'tr-mark-drag': drag && drag.name === m.name }]"
+			:class="['tr-mark-' + m.io, { 'tr-mark-drag': drag && drag.name === m.name, 'tr-mark-locked': m.request }]"
 			:style="{ left: pct(m.ms) }"
-			:title="fmt(m.ms) + ' · ' + markLabel(m.io)"
+			:title="fmt(m.ms) + ' · ' + markLabel(m.io) + (m.request ? ' · ' + m.request : '')"
 			@mousedown.prevent.stop="startDrag(m, $event)"
-			@click.stop
+			@click.stop="m.request && explain(m)"
 		></div>
 
 		<!-- hover ghost -->
@@ -110,6 +121,7 @@ export default {
 		markers() {
 			const list = this.row.checkins.map((c) => ({
 				name: c.name,
+				request: c.request || null,
 				ms: this.drag && this.drag.name === c.name ? this.drag.curMs : this.toMs(c.time),
 			}));
 			list.sort((a, b) => a.ms - b.ms);
@@ -123,6 +135,13 @@ export default {
 				list.forEach((m, i) => (m.io = i % 2 === 0 ? "in" : "out"));
 			}
 			return list;
+		},
+		supersededMarks() {
+			return (this.row.superseded || []).map((c) => ({
+				name: c.name,
+				by: c.superseded_by,
+				ms: this.toMs(c.time),
+			}));
 		},
 		segments() {
 			const t = this.markers.map((m) => m.ms);
@@ -165,6 +184,12 @@ export default {
 	methods: {
 		t(s) {
 			return typeof __ !== "undefined" ? __(s) : s;
+		},
+		explain(mark) {
+			const message = mark.by
+				? __("Replaced by the correction in Attendance Request {0}; it no longer counts. Cancel or amend that request to change the shift.", [mark.by])
+				: __("From Attendance Request {0}. Cancel or amend that request to change it.", [mark.request]);
+			frappe.show_alert({ message, indicator: "orange" }, 6);
 		},
 		markLabel(io) {
 			if (io === "in") return this.inLabel;
@@ -212,7 +237,8 @@ export default {
 		},
 		// ---- drag ----
 		startDrag(m, ev) {
-			if (ev.button !== 0 || this.readonly || this.saving) return;
+			// A punch from an Attendance Request changes only through that request.
+			if (ev.button !== 0 || this.readonly || this.saving || m.request) return;
 			this.hoverMs = null;
 			this.drag = { name: m.name, origMs: m.ms, curMs: m.ms, moved: false };
 			this._onMove = (e) => this.dragMove(e);
@@ -402,6 +428,22 @@ body.tr-dragging * {
 }
 .tr-mark:hover {
 	transform: scaleX(1.35);
+}
+/* a punch from an Attendance Request: counted, but changed only through the request */
+.tr-mark-locked {
+	opacity: 0.55;
+	cursor: help;
+	background-image: none;
+}
+/* a punch a shift correction replaced: shown where it was, not counted */
+.tr-mark-superseded {
+	z-index: 2;
+	cursor: help;
+	background-color: transparent;
+	background-image: none;
+	border: 1.5px dashed #94a3b8;
+	box-shadow: none;
+	opacity: 0.8;
 }
 .tr-mark-drag {
 	transition: transform 0.1s;
