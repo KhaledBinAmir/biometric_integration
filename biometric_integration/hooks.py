@@ -35,6 +35,11 @@ default_log_clearing_doctypes = {
     "Attendance Device Command": 90,
 }
 
+# --- Answers for other apps (asked through hooks, never imported) ---
+# Companies whose employees can punch: a payroll app may track their
+# check-ins by default (frappe_nmbrs, 2026-10-09).
+attendance_device_companies = ["biometric_integration.api.attendance_device_companies"]
+
 # --- Document Events ---
 doc_events = {
     "Employee": {

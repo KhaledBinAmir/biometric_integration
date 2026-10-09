@@ -254,3 +254,18 @@ def enqueue_user_deletions(user_id: str) -> str:
     for device_id, brand in devices.items():
         add_command(device_id, user_doc.name, brand, "Delete User")
     return f"Queued {len(devices)} Delete User command(s)."
+
+
+def attendance_device_companies() -> list[str]:
+    """Companies with at least one enabled attendance device.
+
+    Answers the ``attendance_device_companies`` hook, so another app (e.g. a
+    payroll app that tracks check-ins by default where people can punch) can
+    ask without importing this one.
+    """
+    return frappe.get_all(
+        "Attendance Device",
+        filters={"disabled": 0, "company": ["is", "set"]},
+        pluck="company",
+        distinct=True,
+    )
