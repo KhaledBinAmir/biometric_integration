@@ -68,6 +68,7 @@ def get_endpoint_urls() -> dict:
 def check_proxy_compatibility() -> dict:
     """Check whether this server supports UI-based nginx proxy configuration."""
     from biometric_integration.proxy.detector import check_proxy_compatibility as _check
+
     return _check()
 
 
@@ -76,6 +77,7 @@ def enable_proxy(port: int) -> dict:
     """Enable the nginx HTTP listener on the given port."""
     frappe.only_for("System Manager")
     from biometric_integration.proxy.configurator import enable_listener_logic
+
     ok, message = enable_listener_logic(frappe.local.site, int(port))
     return {"success": ok, "message": message}
 
@@ -85,6 +87,7 @@ def disable_proxy() -> dict:
     """Disable the nginx HTTP listener."""
     frappe.only_for("System Manager")
     from biometric_integration.proxy.configurator import disable_listener_logic
+
     ok, message = disable_listener_logic(frappe.local.site)
     return {"success": ok, "message": message}
 
@@ -93,6 +96,7 @@ def disable_proxy() -> dict:
 def get_proxy_status() -> dict:
     """Return current proxy status (enabled, port)."""
     from biometric_integration.proxy.configurator import get_status_logic
+
     return get_status_logic(frappe.local.site)
 
 
@@ -101,16 +105,40 @@ def get_generated_nginx_config(port: int = 8998) -> str:
     """Return a ready-to-use nginx server block for manual installation."""
     frappe.only_for("System Manager")
     from biometric_integration.proxy.template import get_server_block
+
     return get_server_block(frappe.local.site, int(port))
+
+
+@frappe.whitelist(methods=["POST"])
+def sync_employees(dry_run: int = 1) -> dict:
+    """Put every in-scope employee on the devices they belong on (per the
+    Employee Sync Mode). dry_run=1 only reports what would be added; the real
+    run goes to a background job and reports back over realtime, so a large
+    site cannot hit the request timeout halfway through."""
+    frappe.only_for("System Manager")
+    from biometric_integration.services.user_sync import reconcile_employee_devices
+
+    if cint(dry_run):
+        return reconcile_employee_devices(dry_run=True)
+    frappe.enqueue(
+        "biometric_integration.services.user_sync.run_sync_job",
+        queue="long",
+        user=frappe.session.user,
+        job_id="biometric_employee_sync",
+        deduplicate=True,
+    )
+    return {"queued": True}
 
 
 @frappe.whitelist()
 def enqueue_all_enrollments(device_id: str) -> str:
-    """Queue Enroll User commands for all eligible users for a given device."""
+    """Put this device's assigned users back on it, plus whoever belongs there
+    per the Employee Sync Mode."""
     frappe.only_for("System Manager")
     from biometric_integration.biometric_integration.doctype.attendance_device.attendance_device import (
         _enqueue_initial_enrollments,
     )
+
     device = frappe.get_doc("Attendance Device", device_id)
     _enqueue_initial_enrollments(device)
     return f"Enrollment commands queued for device {device.device_name}."
@@ -120,12 +148,13 @@ def enqueue_all_enrollments(device_id: str) -> str:
 def enqueue_user_enrollments(user_id: str) -> str:
     """Queue Enroll User commands for all assigned devices of a user."""
     frappe.only_for("System Manager")
-    from biometric_integration.biometric_integration.doctype.attendance_device_user.attendance_device_user import (
-        _get_user_devices,
-    )
     from biometric_integration.biometric_integration.doctype.attendance_device_command.attendance_device_command import (
         add_command,
     )
+    from biometric_integration.biometric_integration.doctype.attendance_device_user.attendance_device_user import (
+        _get_user_devices,
+    )
+
     user_doc = frappe.get_doc("Attendance Device User", user_id)
     devices = _get_user_devices(user_doc)
     count = 0
@@ -137,14 +166,21 @@ def enqueue_user_enrollments(user_id: str) -> str:
     return f"Queued {count} Enroll User command(s)."
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_device_command(device_id: str, command_type: str) -> str:
     """Create and return the name of a new Attendance Device Command."""
     frappe.only_for("System Manager")
     ALLOWED = {
-        "Get Enroll Data", "Enroll User", "Delete User", "Update User",
-        "Sync User List", "Restart Device", "Unlock Door", "Set Device Time",
-        "Pull From Device", "Refresh Device Info",
+        "Get Enroll Data",
+        "Enroll User",
+        "Delete User",
+        "Update User",
+        "Sync User List",
+        "Restart Device",
+        "Unlock Door",
+        "Set Device Time",
+        "Pull From Device",
+        "Refresh Device Info",
     }
     if command_type not in ALLOWED:
         frappe.throw(f"Unsupported command type: {command_type}")
@@ -156,12 +192,11 @@ def create_device_command(device_id: str, command_type: str) -> str:
     cmd.brand = brand
     cmd.command_type = command_type
     cmd.status = "Pending"
-    cmd.insert(ignore_permissions=True)
-    frappe.db.commit()
+    cmd.insert(ignore_permissions=True)  # the command's after_insert commits
     return cmd.name
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_repull_command(device_id: str, start_time: str, end_time: str | None = None) -> str:
     """Queue a ZKTeco 'Re-pull Attendance' command for a date range.
 
@@ -181,8 +216,7 @@ def create_repull_command(device_id: str, start_time: str, end_time: str | None 
     cmd.repull_start = start_time
     cmd.repull_end = end_time
     cmd.status = "Pending"
-    cmd.insert(ignore_permissions=True)
-    frappe.db.commit()
+    cmd.insert(ignore_permissions=True)  # the command's after_insert commits
     return cmd.name
 
 
@@ -208,12 +242,13 @@ def get_command_status(cmd_name: str) -> dict:
 def enqueue_user_deletions(user_id: str) -> str:
     """Queue Delete User commands for all assigned devices of a user."""
     frappe.only_for("System Manager")
-    from biometric_integration.biometric_integration.doctype.attendance_device_user.attendance_device_user import (
-        _get_user_devices,
-    )
     from biometric_integration.biometric_integration.doctype.attendance_device_command.attendance_device_command import (
         add_command,
     )
+    from biometric_integration.biometric_integration.doctype.attendance_device_user.attendance_device_user import (
+        _get_user_devices,
+    )
+
     user_doc = frappe.get_doc("Attendance Device User", user_id)
     devices = _get_user_devices(user_doc)
     for device_id, brand in devices.items():

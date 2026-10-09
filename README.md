@@ -134,6 +134,16 @@ Once the device connects, `Last Contact` updates and it's ready.
 
 When a PIN first appears, an **Attendance Device User** is created automatically. Link it to the matching ERPNext Employee — or, better, pre-fill each Employee's **Attendance Device ID** field with their device PIN and the app links them automatically on first contact.
 
+To put employees on devices from ERPNext instead, set **Employee Sync Mode** in Attendance Integration Settings:
+
+| Mode | An Active employee with an Attendance Device ID is put on |
+|------|------|
+| **Disabled** (default) | nothing automatically; keep the device list on the Attendance Device User by hand |
+| **Company Devices** | every enabled device owned by the employee's company |
+| **All Devices** | every enabled device |
+
+Sync runs on every Employee save, daily, when a device is registered or re-enabled, and from the **Sync Employees** button (which previews before it changes anything). It only ever adds people to devices: an extra device on someone's Attendance Device User (a person who also clocks at another company's device) is kept, and people leave devices only by becoming Left or Inactive. Devices with *Disable Employee Sync* are skipped.
+
 ---
 
 ## Attendance Flow
@@ -171,7 +181,7 @@ Attendance can be (re)built from raw check-ins by a **Server Script you nominate
 - Biometric templates are stored as **private File attachments** on the Attendance Device User (ZKTeco = a versioned JSON accumulating fingers/face/card; EBKN = the raw blob).
 - **Propagation is command-queue based and modality-dependent:** a fingerprint is pushed to another device via the classic `FINGERTMP` command; face/palm templates require unified-`biodata` firmware on the target. Enrollment is *not* magically mirrored everywhere — it's queued per assigned device.
 - **`Allow In All Devices`** on the Attendance Device User syncs that user to every non-disabled device instead of only the ones in its device list.
-- **Employee lifecycle:** Inactive/Left → `Delete User` queued for assigned devices; reactivated → `Enroll User` re-pushes the stored template; name change → `Update User`.
+- **Employee lifecycle:** Inactive/Left → `Delete User` queued for assigned devices; reactivated → `Enroll User` re-pushes the stored template (`Update User` when there is none); name change → `Update User`. Which devices a person is put on in the first place follows **Employee Sync Mode** (see [Map employees](#4-map-employees)).
 
 ---
 

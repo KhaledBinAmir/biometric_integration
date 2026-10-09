@@ -25,6 +25,7 @@ scheduler_events = {
         "biometric_integration.services.command_processor.force_close_stale_commands",
         "biometric_integration.services.command_processor.purge_completed_commands",
         "biometric_integration.services.command_processor.resync_pending_command_flags",
+        "biometric_integration.services.user_sync.reconcile_daily",
     ],
 }
 
@@ -46,20 +47,29 @@ doc_events = {
 fixtures = [
     {
         "dt": "Custom Field",
-        "filters": [["name", "in", [
-            "Employee Checkin-biometric_method",
-            "Employee-create_user_in_device",
-            "Employee-biometric_device",
-        ]]],
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Employee Checkin-biometric_method",
+                ],
+            ]
+        ],
     },
     {
         "dt": "Property Setter",
-        "filters": [["name", "in", [
-            "Employee Checkin-device_id-fieldtype",
-            "Employee Checkin-device_id-options",
-            "Employee-attendance_device_id-mandatory_depends_on",
-            "Shift Type-auto_attendance_settings_section-depends_on",
-            "Shift Type-working_hours_calculation_based_on-description",
-        ]]],
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Employee Checkin-device_id-fieldtype",
+                    "Employee Checkin-device_id-options",
+                    "Shift Type-auto_attendance_settings_section-depends_on",
+                    "Shift Type-working_hours_calculation_based_on-description",
+                ],
+            ]
+        ],
     },
 ]

@@ -8,6 +8,8 @@
   "create_checkin_for_unknown_pin",
   "column_break_ziga",
   "push_timezone_to_device",
+  "section_employee_sync",
+  "employee_sync_mode",
   "section_commands",
   "maximum_command_attempts",
   "force_close_after_days",
@@ -54,6 +56,19 @@
    "fieldname": "push_timezone_to_device",
    "fieldtype": "Check",
    "label": "Push Timezone to Device"
+  },
+  {
+   "fieldname": "section_employee_sync",
+   "fieldtype": "Section Break",
+   "label": "Employee Sync"
+  },
+  {
+   "default": "Disabled",
+   "description": "Which devices an Active employee with an Attendance Device ID is put on automatically. <b>Company Devices</b>: every enabled device of the employee's company. <b>All Devices</b>: every enabled device. <b>Disabled</b>: devices are assigned by hand on the Attendance Device User. Sync only adds people to devices; it never removes anyone (an employee leaves the devices when set to Left or Inactive).",
+   "fieldname": "employee_sync_mode",
+   "fieldtype": "Select",
+   "label": "Employee Sync Mode",
+   "options": "Disabled\nCompany Devices\nAll Devices"
   },
   {
    "fieldname": "section_commands",
@@ -234,7 +249,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-03-12 11:06:09.316190",
+ "modified": "2026-10-09 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Biometric Integration",
  "name": "Attendance Integration Settings",

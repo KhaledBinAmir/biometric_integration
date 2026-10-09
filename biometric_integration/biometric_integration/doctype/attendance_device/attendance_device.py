@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: MIT
 
 from __future__ import annotations
+
 from frappe.model.document import Document
-import frappe
 
 from biometric_integration.utils.device_cache import invalidate_device_cache
-
 
 _BRAND_BLOB_FIELD = {
     "EBKN": "ebkn_enroll_data",
@@ -31,25 +30,14 @@ class AttendanceDevice(Document):
 
 
 def _enqueue_initial_enrollments(device: "AttendanceDevice") -> None:
-    """When a device is first registered or re-enabled, enqueue Enroll User commands
-    for all existing users that have enrollment data for this device's brand."""
-    if device.disabled or device.disable_employee_sync:
+    """When a device is first registered or re-enabled, put its assigned users
+    back on it and add whoever else belongs there per the employee sync mode.
+
+    This used to queue Enroll User for every user with stored enrollment data,
+    whatever their company, which on a multi-company site put everyone on every
+    new device."""
+    if device.disabled or device.disable_employee_sync or device.brand not in _BRAND_BLOB_FIELD:
         return
-    brand = device.brand
-    blob_field = _BRAND_BLOB_FIELD.get(brand)
-    if not blob_field:
-        return
+    from biometric_integration.services.user_sync import push_device_roster
 
-    all_users = frappe.get_all(
-        "Attendance Device User",
-        filters={blob_field: ["is", "set"]},
-        pluck="name",
-    )
-
-    for user_id in all_users:
-        _add_command(device.name, user_id, brand, "Enroll User")
-
-
-def _add_command(device_id: str, user_id: str, brand: str, command_type: str) -> None:
-    from biometric_integration.biometric_integration.doctype.attendance_device_command.attendance_device_command import add_command
-    add_command(device_id, user_id, brand, command_type)
+    push_device_roster(device.name)

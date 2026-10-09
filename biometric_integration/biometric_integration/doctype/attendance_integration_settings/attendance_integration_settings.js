@@ -5,6 +5,7 @@ frappe.ui.form.on("Attendance Integration Settings", {
 	refresh(frm) {
 		_load_endpoint_urls(frm);
 		_check_proxy_compatibility(frm);
+		frm.add_custom_button(__("Sync Employees"), () => _sync_employees(frm));
 	},
 
 	proxy_enabled(frm) {
@@ -19,6 +20,73 @@ frappe.ui.form.on("Attendance Integration Settings", {
 		_load_endpoint_urls(frm);
 	},
 });
+
+// Preview first, then sync: show who would be added to which device and only
+// queue the commands once the operator confirms.
+function _sync_employees(frm) {
+	if (frm.is_dirty()) {
+		frappe.msgprint(__("Save the settings first."));
+		return;
+	}
+	frappe.call({
+		method: "biometric_integration.api.sync_employees",
+		args: { dry_run: 1 },
+		freeze: true,
+		callback(r) {
+			const s = r.message;
+			if (!s) return;
+			if (s.mode === "Disabled") {
+				frappe.msgprint(__("Employee Sync Mode is Disabled: nothing is assigned automatically."));
+				return;
+			}
+			const html = _sync_summary_html(s);
+			if (!s.people.length) {
+				frappe.msgprint({ title: __("Employees are in sync"), message: html });
+				return;
+			}
+			frappe.confirm(html + `<p>${__("Add them now?")}</p>`, () => {
+				frappe.realtime.off("biometric_employee_sync_done");
+				frappe.realtime.on("biometric_employee_sync_done", (done) => {
+					frappe.realtime.off("biometric_employee_sync_done");
+					frappe.msgprint({ title: __("Employees synced"), message: _sync_summary_html(done) });
+				});
+				frappe.call({
+					method: "biometric_integration.api.sync_employees",
+					args: { dry_run: 0 },
+					callback() {
+						frappe.show_alert({
+							message: __("Sync started in the background. You will see the result here."),
+							indicator: "blue",
+						});
+					},
+				});
+			});
+		},
+	});
+}
+
+function _sync_summary_html(s) {
+	const esc = frappe.utils.escape_html;
+	const names = s.device_names || {};
+	const per_device = Object.entries(s.added || {})
+		.map(([sn, n]) => `<li>${esc(names[sn] || sn)}: ${n}</li>`)
+		.join("");
+	let html = `<p>${__("{0} employees checked ({1}).", [s.employees, esc(s.mode)])}</p>`;
+	if (s.people.length) {
+		const verb = s.dry_run ? __("To add") : __("Added");
+		html += `<p><b>${verb}: ${s.people.length}</b></p><ul>${per_device}</ul>`;
+		html += `<p class="text-muted small">${s.people.map(esc).join(", ")}</p>`;
+	}
+	if (s.conflicts && s.conflicts.length) {
+		html += `<p class="text-danger">${__("Not synced:")}</p><ul>${s.conflicts
+			.map((c) => `<li>${esc(c)}</li>`)
+			.join("")}</ul>`;
+	}
+	if (s.no_pin && s.no_pin.length) {
+		html += `<p>${__("No Attendance Device ID, so not on any device:")} ${s.no_pin.map(esc).join(", ")}</p>`;
+	}
+	return html;
+}
 
 function _load_endpoint_urls(frm) {
 	frappe.call({

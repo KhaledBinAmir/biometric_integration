@@ -33,22 +33,6 @@
  },
  {
   "default_value": null,
-  "doc_type": "Employee",
-  "docstatus": 0,
-  "doctype": "Property Setter",
-  "doctype_or_field": "DocField",
-  "field_name": "attendance_device_id",
-  "is_system_generated": 0,
-  "modified": "2026-04-27 04:16:32.073392",
-  "module": null,
-  "name": "Employee-attendance_device_id-mandatory_depends_on",
-  "property": "mandatory_depends_on",
-  "property_type": "Code",
-  "row_name": null,
-  "value": "eval:doc.create_user_in_device"
- },
- {
-  "default_value": null,
   "doc_type": "Shift Type",
   "docstatus": 0,
   "doctype": "Property Setter",
