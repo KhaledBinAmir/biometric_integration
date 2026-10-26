@@ -13,7 +13,7 @@ import json
 from typing import Any, Optional, Union
 
 import frappe
-from frappe.utils import cint, now, now_datetime, get_datetime, add_to_date
+from frappe.utils import add_to_date, cint, get_datetime, now, now_datetime
 
 from biometric_integration.biometric_integration.doctype.attendance_device_command.attendance_device_command import (
     _PURGE_CHUNK,
@@ -73,8 +73,7 @@ def _claim_next_command(device_sn: str) -> Optional[str]:
     # this once did) hides the status predicate from the optimizer, which then
     # falls back to scanning the table in `creation` order on every poll.
     claimable = (
-        "status IN ('Pending','Sent') "
-        "AND (status='Pending' OR sent_on IS NULL OR sent_on < %(cutoff)s)"
+        "status IN ('Pending','Sent') AND (status='Pending' OR sent_on IS NULL OR sent_on < %(cutoff)s)"
     )
     # Bounded loop: fail any candidate that has hit the attempt cap (the raw-SQL
     # claim below bypasses the doctype's before_save auto-fail), then take the next.
@@ -97,16 +96,20 @@ def _claim_next_command(device_sn: str) -> Optional[str]:
                     {"sn": device_sn},
                 )
             ):
-                frappe.db.set_value("Attendance Device", device_sn, "has_pending_command", 0,
-                                    update_modified=False)
+                frappe.db.set_value(
+                    "Attendance Device", device_sn, "has_pending_command", 0, update_modified=False
+                )
                 frappe.db.commit()
             return None
 
         name, attempts = rows[0][0], cint(rows[0][1])
         if attempts >= max_attempts:
-            frappe.db.set_value("Attendance Device Command", name,
-                                {"status": "Failed", "closed_on": now_datetime()},
-                                update_modified=False)
+            frappe.db.set_value(
+                "Attendance Device Command",
+                name,
+                {"status": "Failed", "closed_on": now_datetime()},
+                update_modified=False,
+            )
             frappe.db.commit()
             continue  # look for the next claimable command
 
@@ -209,11 +212,13 @@ def process_device_command(device_sn: str) -> Optional[Union[str, dict]]:
             return None
         start_s = (
             get_datetime(cmd_doc.repull_start).strftime("%Y-%m-%d %H:%M:%S")
-            if cmd_doc.repull_start else "2000-01-01 00:00:00"
+            if cmd_doc.repull_start
+            else "2000-01-01 00:00:00"
         )
         end_s = (
             get_datetime(cmd_doc.repull_end).strftime("%Y-%m-%d %H:%M:%S")
-            if cmd_doc.repull_end else now_datetime().strftime("%Y-%m-%d %H:%M:%S")
+            if cmd_doc.repull_end
+            else now_datetime().strftime("%Y-%m-%d %H:%M:%S")
         )
         _finish(cmd_doc, "Success", f"Sent: DATA QUERY ATTLOG StartTime={start_s} EndTime={end_s}")
         return f"C:{cmd_doc.name}:DATA QUERY ATTLOG StartTime={start_s}\tEndTime={end_s}"
@@ -231,8 +236,11 @@ def process_device_command(device_sn: str) -> Optional[Union[str, dict]]:
         if brand != "ZKTeco":
             _finish(cmd_doc, "Failed", "Refresh Device Info is only supported for ZKTeco devices.")
             return None
-        _finish(cmd_doc, "Success",
-                "Sent: GET OPTIONS (device reports fp/firmware/bio capabilities asynchronously)")
+        _finish(
+            cmd_doc,
+            "Success",
+            "Sent: GET OPTIONS (device reports fp/firmware/bio capabilities asynchronously)",
+        )
         # Request exactly the option keys _store_device_capabilities knows how to
         # parse. ~ prefix marks read-only/optional options in the ADMS spec.
         keys = "~ZKFPVersion,~ZKFaceVersion,FirmVer,~DeviceName,MAC,~MaxUserCount,FaceFunOn,FingerFunOn,FvFunOn,PvFunOn"
@@ -255,8 +263,7 @@ def process_device_command(device_sn: str) -> Optional[Union[str, dict]]:
         # happens if the handshake asks for everything, so request a one-off full
         # resync (stamps -> 0); the next handshake clears the flag and returns to
         # incremental, so this never becomes a permanent re-dump loop.
-        frappe.db.set_value("Attendance Device", device_sn, "force_full_resync", 1,
-                            update_modified=False)
+        frappe.db.set_value("Attendance Device", device_sn, "force_full_resync", 1, update_modified=False)
         frappe.db.commit()
         _finish(cmd_doc, "Success", "Sent: CHECK (device replays users + fingerprints via OPERLOG)")
         return f"C:{cmd_doc.name}:CHECK"
@@ -283,7 +290,8 @@ def force_close_stale_commands() -> None:
     )
     for name in stale:
         frappe.db.set_value(
-            "Attendance Device Command", name,
+            "Attendance Device Command",
+            name,
             {"status": "Failed", "closed_on": now_datetime()},
             update_modified=False,
         )
@@ -294,6 +302,7 @@ def force_close_stale_commands() -> None:
 # ---------------------------------------------------------------------------
 # Build logic
 # ---------------------------------------------------------------------------
+
 
 def _build_payload(cmd_doc: Any) -> Optional[Union[str, dict]]:
     user_doc = frappe.get_doc("Attendance Device User", cmd_doc.attendance_device_user)
@@ -377,10 +386,15 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
             # Version-match gate: a fingerprint template only matches on a device
             # whose FP algorithm version equals the version it was captured on.
             # target_fp = manual override if set, else the auto-detected version.
-            dev = frappe.db.get_value(
-                "Attendance Device", cmd_doc.attendance_device,
-                ["fp_version", "fp_version_override"], as_dict=True,
-            ) or {}
+            dev = (
+                frappe.db.get_value(
+                    "Attendance Device",
+                    cmd_doc.attendance_device,
+                    ["fp_version", "fp_version_override"],
+                    as_dict=True,
+                )
+                or {}
+            )
             target_fp = cint(dev.get("fp_version_override")) or cint(dev.get("fp_version"))
             _s = frappe.get_cached_doc("Attendance Integration Settings")
             _raw = _s.get("enforce_fp_version_match")
@@ -483,8 +497,9 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
                 )
                 frappe.log_error(title="Biometric Enrollment Version Gate", message=msg)
                 try:
-                    frappe.db.set_value("Attendance Device Command", cmd_id,
-                                        "device_response", msg, update_modified=False)
+                    frappe.db.set_value(
+                        "Attendance Device Command", cmd_id, "device_response", msg, update_modified=False
+                    )
                     frappe.db.commit()
                 except Exception:
                     pass
@@ -500,10 +515,12 @@ def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
             # Legacy format — raw base64 string, assume single fingerprint FID=0
             tmp = blob.decode("utf-8").strip()
             size = len(base64.b64decode(tmp + "=="))
-            return "\n".join([
-                f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri={_zk_pri(user_doc)}\tPasswd={_zk_passwd(user_doc)}\tCard=0",
-                f"C:{cmd_id}:DATA UPDATE BIODATA\tPIN={pin}\tFID=0\tSize={size}\tValid=1\tTMP={tmp}",
-            ])
+            return "\n".join(
+                [
+                    f"C:{cmd_id}:DATA UPDATE USERINFO\tPIN={pin}\tName={name}\tPri={_zk_pri(user_doc)}\tPasswd={_zk_passwd(user_doc)}\tCard=0",
+                    f"C:{cmd_id}:DATA UPDATE BIODATA\tPIN={pin}\tFID=0\tSize={size}\tValid=1\tTMP={tmp}",
+                ]
+            )
     return None
 
 
@@ -513,9 +530,7 @@ def _ebkn(cmd_doc: Any, user_doc: Any) -> Optional[dict]:
     # message instead of an opaque int() ValueError.
     raw_pin = str(user_doc.user_id or "").strip()
     if not raw_pin.isdigit():
-        raise ValueError(
-            f"EBKN commands need a numeric user id; user {user_doc.name} has {raw_pin!r}"
-        )
+        raise ValueError(f"EBKN commands need a numeric user id; user {user_doc.name} has {raw_pin!r}")
     uid = raw_pin.zfill(8)
 
     if cmd_doc.command_type == "Delete User":
@@ -543,7 +558,9 @@ def _ebkn(cmd_doc: Any, user_doc: Any) -> Optional[dict]:
         return {
             "trans_id": cmd_doc.name,
             "cmd_code": "SET_USER_PROFILE",
-            "body": json.dumps({"user_id": uid, "user_name": user_doc.employee_name or "", "privilege": _ebkn_pri(user_doc)}),
+            "body": json.dumps(
+                {"user_id": uid, "user_name": user_doc.employee_name or "", "privilege": _ebkn_pri(user_doc)}
+            ),
         }
 
     if cmd_doc.command_type == "Enroll User":
@@ -562,8 +579,10 @@ def _ebkn_now_for_device(device_sn: str) -> str:
     string is a plain wall-clock value — EBKN's SET_TIME has no UTC marker.
     """
     from datetime import datetime
+
     try:
         from zoneinfo import ZoneInfo
+
         tz_name = (
             frappe.db.get_value("Attendance Device", device_sn, "device_timezone")
             or frappe.utils.get_system_timezone()
@@ -590,9 +609,7 @@ def _handle_build_failure(cmd_doc: Any, exc: Exception) -> None:
         cmd_doc.reload()
         cmd_doc.no_of_attempts = (cmd_doc.no_of_attempts or 0) + 1
         line = f"[{now()}] Build Failed: {exc}"
-        cmd_doc.device_response = (
-            f"{cmd_doc.device_response}\n{line}" if cmd_doc.device_response else line
-        )
+        cmd_doc.device_response = f"{cmd_doc.device_response}\n{line}" if cmd_doc.device_response else line
         settings = frappe.get_cached_doc("Attendance Integration Settings")
         max_att = cint(settings.maximum_command_attempts) or 3
         if cmd_doc.no_of_attempts >= max_att:
@@ -623,9 +640,7 @@ def purge_completed_commands() -> None:
     days) and commits per chunk, so a large backlog never holds a long lock on a
     live table.
     """
-    days = cint(
-        frappe.db.get_single_value("Attendance Integration Settings", "command_retention_days")
-    ) or 30
+    days = cint(frappe.db.get_single_value("Attendance Integration Settings", "command_retention_days")) or 30
     cutoff = add_to_date(now_datetime(), days=-days)
     deleted = 0
     while True:
@@ -659,12 +674,15 @@ def resync_pending_command_flags() -> None:
     for sn, flag in frappe.db.sql(
         """SELECT d.name, ifnull(d.has_pending_command, 0) FROM `tabAttendance Device` d"""
     ):
-        should = 1 if frappe.db.sql(
-            """SELECT name FROM `tabAttendance Device Command`
+        should = (
+            1
+            if frappe.db.sql(
+                """SELECT name FROM `tabAttendance Device Command`
                WHERE attendance_device=%(sn)s AND status IN ('Pending','Sent') LIMIT 1""",
-            {"sn": sn},
-        ) else 0
+                {"sn": sn},
+            )
+            else 0
+        )
         if cint(flag) != should:
-            frappe.db.set_value("Attendance Device", sn, "has_pending_command", should,
-                                update_modified=False)
+            frappe.db.set_value("Attendance Device", sn, "has_pending_command", should, update_modified=False)
             frappe.db.commit()

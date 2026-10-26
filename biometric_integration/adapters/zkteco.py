@@ -31,24 +31,24 @@ from frappe.utils import cint
 from werkzeug.wrappers import Response
 
 from biometric_integration.adapters.base import AbstractDeviceAdapter
-from biometric_integration.services.checkin import create_employee_checkin
-from biometric_integration.services.command_processor import process_device_command
+from biometric_integration.biometric_integration.doctype.attendance_device_log.attendance_device_log import (
+    maybe_log,
+)
 from biometric_integration.biometric_integration.doctype.attendance_device_user.attendance_device_user import (
     get_or_create_user_by_pin,
     update_zkteco_enrollment,
 )
-from biometric_integration.biometric_integration.doctype.attendance_device_log.attendance_device_log import maybe_log
+from biometric_integration.services.checkin import create_employee_checkin
+from biometric_integration.services.command_processor import process_device_command
 from biometric_integration.utils.device_cache import (
-    is_registered_device,
-    touch_device,
-    get_last_sync_id,
-    set_last_sync_id,
     get_employee_by_pin,
+    is_registered_device,
+    set_last_sync_id,
+    touch_device,
 )
 
 
 class ZKTecoAdapter(AbstractDeviceAdapter):
-
     def dispatch(self) -> Response:
         path = self.path  # e.g. "/iclock/cdata"
         args = self.request.args
@@ -94,10 +94,14 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             return self.text("ERROR: SN is required.", 400)
 
         if not is_registered_device(sn):
-            maybe_log(sn, "Error", "IN",
-                      f"Handshake from unregistered device SN={sn} — rejected",
-                      raw_data=self.raw_dump("ERROR: Device not registered."),
-                      force=True)
+            maybe_log(
+                sn,
+                "Error",
+                "IN",
+                f"Handshake from unregistered device SN={sn} — rejected",
+                raw_data=self.raw_dump("ERROR: Device not registered."),
+                force=True,
+            )
             # MUST be non-200: a 200 here makes ZK firmware treat the options-fetch
             # as "done" and drop into command-poll-only mode, never re-handshaking
             # until a power-cycle — so a device added to ERPNext slightly after it
@@ -109,8 +113,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         touch_device(sn)
 
         body = f"GET OPTION FROM: {sn}\n" + _build_config_options(sn)
-        maybe_log(sn, "Handshake", "IN", f"Handshake SN={sn}",
-                  raw_data=self.raw_dump(body))
+        maybe_log(sn, "Handshake", "IN", f"Handshake SN={sn}", raw_data=self.raw_dump(body))
         return self.text(body)
 
     # ------------------------------------------------------------------
@@ -124,8 +127,9 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             touch_device(sn)
             body_str = self.raw_body.decode("utf-8", errors="ignore")
             _store_device_capabilities(sn, body_str)
-        maybe_log(sn or "unknown", "Handshake", "IN", f"Registry SN={sn}",
-                  raw_data=self.raw_dump("RegistryCode=0"))
+        maybe_log(
+            sn or "unknown", "Handshake", "IN", f"Registry SN={sn}", raw_data=self.raw_dump("RegistryCode=0")
+        )
         return self.text("RegistryCode=0")
 
     # ------------------------------------------------------------------
@@ -169,10 +173,14 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         body_str = self.raw_body.decode("utf-8", errors="ignore")
 
         if not is_registered_device(sn):
-            maybe_log(sn or "unknown", "Error", "IN",
-                      f"Data from unregistered device SN={sn} (table={table}) — ignored",
-                      raw_data=self.raw_dump(),
-                      force=True)
+            maybe_log(
+                sn or "unknown",
+                "Error",
+                "IN",
+                f"Data from unregistered device SN={sn} (table={table}) — ignored",
+                raw_data=self.raw_dump(),
+                force=True,
+            )
             return self.text("ERROR: Device not registered.")
 
         # The device's own upload cursor. We echo it back on the next handshake so
@@ -222,9 +230,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
                 biometric_method = _verify_code_to_method(parts[3].strip() if len(parts) > 3 else "")
                 log_id = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else 0
 
-                ts = _localize_device_timestamp(
-                    datetime.strptime(time_str.strip(), "%Y-%m-%d %H:%M:%S"), sn
-                )
+                ts = _localize_device_timestamp(datetime.strptime(time_str.strip(), "%Y-%m-%d %H:%M:%S"), sn)
                 create_employee_checkin(
                     device_pin=pin,
                     timestamp=ts,
@@ -232,7 +238,14 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
                     log_type=log_type,
                     biometric_method=biometric_method,
                 )
-                maybe_log(sn, "Attendance", "IN", f"PIN={pin} {log_type} time={time_str}", user_pin=pin, raw_data=line)
+                maybe_log(
+                    sn,
+                    "Attendance",
+                    "IN",
+                    f"PIN={pin} {log_type} time={time_str}",
+                    user_pin=pin,
+                    raw_data=line,
+                )
                 processed += 1
                 if log_id > latest_id:
                     latest_id = log_id
@@ -259,14 +272,22 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             inout = data.get("inoutstatus") or data.get("InOutStatus", "0")
             log_type = "OUT" if str(inout).strip() == "1" else "IN"
             biometric_method = _verify_code_to_method(data.get("verifytype") or data.get("Verifytype", ""))
-            ts = _localize_device_timestamp(
-                datetime.strptime(time_str.strip(), "%Y-%m-%d %H:%M:%S"), sn
-            )
+            ts = _localize_device_timestamp(datetime.strptime(time_str.strip(), "%Y-%m-%d %H:%M:%S"), sn)
             create_employee_checkin(
-                device_pin=pin, timestamp=ts, device_id=sn,
-                log_type=log_type, biometric_method=biometric_method,
+                device_pin=pin,
+                timestamp=ts,
+                device_id=sn,
+                log_type=log_type,
+                biometric_method=biometric_method,
             )
-            maybe_log(sn, "Attendance", "IN", f"RT PIN={pin} {log_type} time={time_str}", user_pin=pin, raw_data=body)
+            maybe_log(
+                sn,
+                "Attendance",
+                "IN",
+                f"RT PIN={pin} {log_type} time={time_str}",
+                user_pin=pin,
+                raw_data=body,
+            )
         except Exception as exc:
             frappe.log_error(title="ZKTeco rtlog Parse Error", message=f"Body: {body!r}\n{exc}")
         return self.text("OK")
@@ -342,11 +363,15 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             n = _process_biodata_records(sn or "", body_str)
             if cmd_id and n:
                 try:
-                    frappe.db.set_value("Attendance Device Command", cmd_id, {
-                        "status": "Success",
-                        "closed_on": frappe.utils.now_datetime(),
-                        "device_response": f"Received {n} template(s)",
-                    })
+                    frappe.db.set_value(
+                        "Attendance Device Command",
+                        cmd_id,
+                        {
+                            "status": "Success",
+                            "closed_on": frappe.utils.now_datetime(),
+                            "device_response": f"Received {n} template(s)",
+                        },
+                    )
                     frappe.db.commit()
                 except Exception:
                     pass
@@ -361,16 +386,21 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             _store_device_capabilities(sn0, body_str)
             if cmd_id:
                 try:
-                    frappe.db.set_value("Attendance Device Command", cmd_id, {
-                        "status": "Success",
-                        "closed_on": frappe.utils.now_datetime(),
-                        "device_response": f"Options reported: {body_str.strip()[:500]}",
-                    })
+                    frappe.db.set_value(
+                        "Attendance Device Command",
+                        cmd_id,
+                        {
+                            "status": "Success",
+                            "closed_on": frappe.utils.now_datetime(),
+                            "device_response": f"Options reported: {body_str.strip()[:500]}",
+                        },
+                    )
                     frappe.db.commit()
                 except Exception:
                     pass
-            maybe_log(sn0 or "unknown", "Handshake", "IN",
-                      f"Device options reported SN={sn0}", raw_data=body_str)
+            maybe_log(
+                sn0 or "unknown", "Handshake", "IN", f"Device options reported SN={sn0}", raw_data=body_str
+            )
             return self.text("OK")
 
         if table != "user":
@@ -400,17 +430,20 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 
         if cmd_id:
             try:
-                frappe.db.set_value("Attendance Device Command", cmd_id, {
-                    "status": "Success",
-                    "closed_on": frappe.utils.now_datetime(),
-                    "device_response": f"Received {count} users",
-                })
+                frappe.db.set_value(
+                    "Attendance Device Command",
+                    cmd_id,
+                    {
+                        "status": "Success",
+                        "closed_on": frappe.utils.now_datetime(),
+                        "device_response": f"Received {count} users",
+                    },
+                )
                 frappe.db.commit()
             except Exception:
                 pass
 
-        maybe_log(sn or "unknown", "Sync", "IN",
-                  f"Sync User List: {count} users received from SN={sn}")
+        maybe_log(sn or "unknown", "Sync", "IN", f"Sync User List: {count} users received from SN={sn}")
         return self.text(f"user={count}")
 
     # ------------------------------------------------------------------
@@ -442,6 +475,7 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
         body_str = self.raw_body.decode("utf-8", errors="ignore")
         for line in body_str.strip().split("\n"):
             from urllib.parse import parse_qs
+
             params = parse_qs(line)
             cmd_id = (params.get("ID") or [None])[0]
             return_code = (params.get("Return") or [None])[0]
@@ -457,13 +491,15 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
                     # commands. Command names are sequential, so without this a forged
                     # request could mark or poison another device's command.
                     if cmd_doc.attendance_device != sn:
-                        maybe_log(sn, "Error", "IN",
-                                  f"devicecmd for command {cmd_id} not owned by {sn} — ignored",
-                                  force=True)
+                        maybe_log(
+                            sn,
+                            "Error",
+                            "IN",
+                            f"devicecmd for command {cmd_id} not owned by {sn} — ignored",
+                            force=True,
+                        )
                         continue
-                    cmd_doc.device_response = (
-                        f"{cmd_doc.device_response or ''}\n{line}".strip()
-                    )
+                    cmd_doc.device_response = f"{cmd_doc.device_response or ''}\n{line}".strip()
                     cmd_doc.status = "Success" if return_code == "0" else "Failed"
                     cmd_doc.closed_on = frappe.utils.now_datetime()
                     cmd_doc.save(ignore_permissions=True)
@@ -547,11 +583,21 @@ def _handle_operlog_fp(sn: str, line: str) -> int:
         return 0
     pin, fid, size, valid, tmp = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), m.group(5)
     user_doc = get_or_create_user_by_pin(pin)
-    update_zkteco_enrollment(user_doc, sn, biometric={
-        "type": 1, "no": fid, "index": 0,
-        "size": size, "valid": valid, "duress": 0,
-        "majorver": 0, "minorver": 0, "tmp": tmp,
-    })
+    update_zkteco_enrollment(
+        user_doc,
+        sn,
+        biometric={
+            "type": 1,
+            "no": fid,
+            "index": 0,
+            "size": size,
+            "valid": valid,
+            "duress": 0,
+            "majorver": 0,
+            "minorver": 0,
+            "tmp": tmp,
+        },
+    )
     maybe_log(sn, "Enrollment", "IN", f"FP PIN={pin} FID={fid}", user_pin=pin)
     return 1
 
@@ -567,11 +613,21 @@ def _handle_operlog_face(sn: str, line: str) -> int:
         return 0
     pin, fid, size, valid, tmp = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), m.group(5)
     user_doc = get_or_create_user_by_pin(pin)
-    update_zkteco_enrollment(user_doc, sn, biometric={
-        "type": 9, "no": fid, "index": 0,
-        "size": size, "valid": valid, "duress": 0,
-        "majorver": 0, "minorver": 0, "tmp": tmp,
-    })
+    update_zkteco_enrollment(
+        user_doc,
+        sn,
+        biometric={
+            "type": 9,
+            "no": fid,
+            "index": 0,
+            "size": size,
+            "valid": valid,
+            "duress": 0,
+            "majorver": 0,
+            "minorver": 0,
+            "tmp": tmp,
+        },
+    )
     maybe_log(sn, "Enrollment", "IN", f"FACE PIN={pin} FID={fid}", user_pin=pin)
     return 1
 
@@ -590,8 +646,7 @@ def _process_biodata_records(sn: str, body: str) -> int:
             try:
                 stored += _handle_operlog_biodata(sn, line)
             except Exception as exc:
-                frappe.log_error(title="ZKTeco biodata Parse Error",
-                                 message=f"SN={sn} Line: {line!r}\n{exc}")
+                frappe.log_error(title="ZKTeco biodata Parse Error", message=f"SN={sn} Line: {line!r}\n{exc}")
     return stored
 
 
@@ -625,31 +680,39 @@ def _handle_operlog_biodata(sn: str, line: str) -> int:
     if not tmp or not pin:
         return 0
     user_doc = get_or_create_user_by_pin(pin)
-    update_zkteco_enrollment(user_doc, sn, biometric={
-        "type": int(f.get("type", 1)),
-        "no": int(f.get("no", 0)),
-        "index": int(f.get("index", 0)),
-        "size": int(f.get("size", 0)),
-        "valid": int(f.get("valid", 1)),
-        "duress": int(f.get("duress", 0)),
-        "majorver": int(f.get("majorver", 0)),
-        "minorver": int(f.get("minorver", 0)),
-        "format": int(f.get("format", 0)),
-        "tmp": tmp,
-    })
-    maybe_log(sn, "Enrollment", "IN",
-              f"biodata PIN={pin} type={f.get('type')} no={f.get('no')} majorver={f.get('majorver')}",
-              user_pin=pin)
+    update_zkteco_enrollment(
+        user_doc,
+        sn,
+        biometric={
+            "type": int(f.get("type", 1)),
+            "no": int(f.get("no", 0)),
+            "index": int(f.get("index", 0)),
+            "size": int(f.get("size", 0)),
+            "valid": int(f.get("valid", 1)),
+            "duress": int(f.get("duress", 0)),
+            "majorver": int(f.get("majorver", 0)),
+            "minorver": int(f.get("minorver", 0)),
+            "format": int(f.get("format", 0)),
+            "tmp": tmp,
+        },
+    )
+    maybe_log(
+        sn,
+        "Enrollment",
+        "IN",
+        f"biodata PIN={pin} type={f.get('type')} no={f.get('no')} majorver={f.get('majorver')}",
+        user_pin=pin,
+    )
     return 1
 
 
 _VERIFY_MAP = {
     1: "Fingerprint",
-    3: "Fingerprint",   # some firmware uses 3
+    3: "Fingerprint",  # some firmware uses 3
     4: "Face",
     6: "Password",
     15: "Card",
-    20: "Face",         # FaceID on newer devices
+    20: "Face",  # FaceID on newer devices
 }
 
 
@@ -686,6 +749,7 @@ def _get_frappe_tz_offset() -> str:
     """
     try:
         from zoneinfo import ZoneInfo
+
         tz_name = frappe.utils.get_system_timezone()
         now_local = datetime.now(ZoneInfo(tz_name))
         return now_local.strftime("%z")  # e.g. "+0100"
@@ -708,6 +772,7 @@ def _get_frappe_tz_hours() -> str:
     """
     try:
         from zoneinfo import ZoneInfo
+
         tz_name = frappe.utils.get_system_timezone()
         now_local = datetime.now(ZoneInfo(tz_name))
         offset_hours = now_local.utcoffset().total_seconds() / 3600
@@ -754,12 +819,15 @@ def _ensure_user_synced_from_query(pin: str, sn: str | None, kv: dict) -> None:
 
     # Queue Get Enroll Data directly (bypass the device-link check in _ensure_device_user_synced)
     if sn:
-        already_pending = frappe.db.exists("Attendance Device Command", {
-            "attendance_device": sn,
-            "attendance_device_user": user_doc.name,
-            "command_type": "Get Enroll Data",
-            "status": "Pending",
-        })
+        already_pending = frappe.db.exists(
+            "Attendance Device Command",
+            {
+                "attendance_device": sn,
+                "attendance_device_user": user_doc.name,
+                "command_type": "Get Enroll Data",
+                "status": "Pending",
+            },
+        )
         if not already_pending:
             cmd = frappe.new_doc("Attendance Device Command")
             cmd.attendance_device = sn
@@ -791,6 +859,7 @@ def _localize_device_timestamp(naive_ts: datetime, sn: str | None) -> datetime:
 
     try:
         from zoneinfo import ZoneInfo
+
         # Attach device timezone, then convert to site timezone
         site_tz_name = frappe.utils.get_system_timezone()
         device_aware = naive_ts.replace(tzinfo=ZoneInfo(device_tz_name))
@@ -840,8 +909,9 @@ def _save_stamp(sn: str | None, field: str, stamp: str | None) -> None:
         frappe.db.set_value("Attendance Device", sn, field, stamp, update_modified=False)
         frappe.db.commit()
     except Exception:
-        frappe.log_error(title="ZKTeco stamp persist failed",
-                         message=f"device={sn} field={field} stamp={stamp!r}")
+        frappe.log_error(
+            title="ZKTeco stamp persist failed", message=f"device={sn} field={field} stamp={stamp!r}"
+        )
 
 
 def _build_config_options(sn: str | None) -> str:
@@ -865,15 +935,19 @@ def _build_config_options(sn: str | None) -> str:
     settings = frappe.get_cached_doc("Attendance Integration Settings")
     att_stamp = oper_stamp = "0"
     if sn:
-        dev = frappe.db.get_value(
-            "Attendance Device", sn,
-            ["last_attlog_stamp", "last_operlog_stamp", "force_full_resync"], as_dict=True,
-        ) or {}
+        dev = (
+            frappe.db.get_value(
+                "Attendance Device",
+                sn,
+                ["last_attlog_stamp", "last_operlog_stamp", "force_full_resync"],
+                as_dict=True,
+            )
+            or {}
+        )
         if cint(dev.get("force_full_resync")):
             # One-off deliberate full replay; clear the flag so the next handshake
             # goes back to incremental.
-            frappe.db.set_value("Attendance Device", sn, "force_full_resync", 0,
-                                update_modified=False)
+            frappe.db.set_value("Attendance Device", sn, "force_full_resync", 0, update_modified=False)
             frappe.db.commit()
         else:
             att_stamp = str(dev.get("last_attlog_stamp") or "0")
@@ -889,7 +963,7 @@ def _build_config_options(sn: str | None) -> str:
     # have it; otherwise advertise fingerprint (type 1) so capture can bootstrap on
     # devices whose caps we haven't read yet. Classic firmware ignores this option,
     # so it's safe fleet-wide.
-    bio = (frappe.db.get_value("Attendance Device", sn, "supported_biometrics") if sn else None)
+    bio = frappe.db.get_value("Attendance Device", sn, "supported_biometrics") if sn else None
     multibio = bio if (bio and ":" in bio) else "0:1:0:0:0:0:0:0:0:0"
     return (
         f"ATTLOGStamp={att_stamp}\n"
@@ -1012,6 +1086,7 @@ def _get_device_tz_hours(sn: str | None) -> str:
         if device_tz:
             try:
                 from zoneinfo import ZoneInfo
+
                 now_local = datetime.now(ZoneInfo(device_tz))
                 offset_hours = now_local.utcoffset().total_seconds() / 3600
                 if offset_hours == int(offset_hours):
