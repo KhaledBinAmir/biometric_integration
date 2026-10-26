@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
+from urllib.parse import parse_qs
 
 import frappe
 from frappe.utils import cint
@@ -377,32 +378,6 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
                     pass
             return self.text(f"biophoto={n}")
 
-        # Device capability probe response (Refresh Device Info → GET OPTIONS).
-        # Firmware differs on how it answers: some POST options here via querydata
-        # (type=options / tablename=options), others via /iclock/cdata?table=options
-        # (handled in _upload). Parse both into the device's capability fields.
-        if table.lower() == "options" or args.get("type") == "options":
-            body_str = self.raw_body.decode("utf-8", errors="ignore")
-            _store_device_capabilities(sn0, body_str)
-            if cmd_id:
-                try:
-                    frappe.db.set_value(
-                        "Attendance Device Command",
-                        cmd_id,
-                        {
-                            "status": "Success",
-                            "closed_on": frappe.utils.now_datetime(),
-                            "device_response": f"Options reported: {body_str.strip()[:500]}",
-                        },
-                    )
-                    frappe.db.commit()
-                except Exception:
-                    pass
-            maybe_log(
-                sn0 or "unknown", "Handshake", "IN", f"Device options reported SN={sn0}", raw_data=body_str
-            )
-            return self.text("OK")
-
         if table != "user":
             return self.text(f"{table}={count_str}")
 
@@ -469,47 +444,56 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
     # ------------------------------------------------------------------
 
     def _handle_devicecmd(self, args) -> Response:
+        """Close the commands a device reports results for.
+
+        One POST can carry several results. Each starts with an ack line
+        (`ID=..&Return=..&CMD=..`); lines without an ID belong to the ack before
+        them: that is how INFO (Refresh Device Info) sends the device's
+        configuration items. Firmware that puts ID and Return in the URL sends a
+        body without an ack line.
+        """
         sn = args.get("SN") or args.get("sn")
         if not is_registered_device(sn):
             return self.text("ERROR: Device not registered.")
         body_str = self.raw_body.decode("utf-8", errors="ignore")
-        for line in body_str.strip().split("\n"):
-            from urllib.parse import parse_qs
 
+        results = []  # [cmd_id, return_code, lines]
+        for line in body_str.strip().split("\n"):
             params = parse_qs(line)
             cmd_id = (params.get("ID") or [None])[0]
-            return_code = (params.get("Return") or [None])[0]
-
-            if not cmd_id:
-                cmd_id = args.get("ID")
-                return_code = args.get("Return")
-
             if cmd_id:
-                try:
-                    cmd_doc = frappe.get_doc("Attendance Device Command", cmd_id)
-                    # Ownership check: a device may only report results for its own
-                    # commands. Command names are sequential, so without this a forged
-                    # request could mark or poison another device's command.
-                    if cmd_doc.attendance_device != sn:
-                        maybe_log(
-                            sn,
-                            "Error",
-                            "IN",
-                            f"devicecmd for command {cmd_id} not owned by {sn} — ignored",
-                            force=True,
-                        )
-                        continue
-                    cmd_doc.device_response = f"{cmd_doc.device_response or ''}\n{line}".strip()
-                    cmd_doc.status = "Success" if return_code == "0" else "Failed"
-                    cmd_doc.closed_on = frappe.utils.now_datetime()
-                    cmd_doc.save(ignore_permissions=True)
-                    frappe.db.commit()
-                except Exception as exc:
-                    frappe.log_error(
-                        title="ZKTeco devicecmd Error",
-                        message=f"CmdID={cmd_id}: {exc}",
-                    )
+                results.append([cmd_id, (params.get("Return") or [None])[0], [line]])
+            elif results:
+                results[-1][2].append(line)
+            elif args.get("ID"):
+                results.append([args.get("ID"), args.get("Return"), [line]])
+
+        for cmd_id, return_code, lines in results:
+            try:
+                self._close_command(sn, cmd_id, return_code, lines)
+            except Exception:
+                frappe.log_error(title="ZKTeco devicecmd Error", message=f"CmdID={cmd_id}")
         return self.text("OK")
+
+    def _close_command(self, sn: str, cmd_id: str, return_code: str | None, lines: list) -> None:
+        cmd_doc = frappe.get_doc("Attendance Device Command", cmd_id)
+        # Ownership check: a device may only report results for its own
+        # commands. Command names are sequential, so without this a forged
+        # request could mark or poison another device's command.
+        if cmd_doc.attendance_device != sn:
+            maybe_log(
+                sn, "Error", "IN", f"devicecmd for command {cmd_id} not owned by {sn} — ignored", force=True
+            )
+            return
+        result = "\n".join(lines)
+        cmd_doc.device_response = f"{cmd_doc.device_response or ''}\n{result}".strip()
+        cmd_doc.status = "Success" if return_code == "0" else "Failed"
+        cmd_doc.closed_on = frappe.utils.now_datetime()
+        cmd_doc.save()
+        if cmd_doc.command_type == "Refresh Device Info":
+            items = [line for line in lines if "ID" not in parse_qs(line)]
+            _store_device_capabilities(sn, "", kv=_parse_item_lines(items))
+            maybe_log(sn, "Command", "IN", f"Device info reported for command {cmd_id}", raw_data=result)
 
 
 # ------------------------------------------------------------------
@@ -993,8 +977,6 @@ def _parse_device_kv(body: str) -> dict:
 
     Fields prefixed with ~ in the ADMS spec are optional; we strip the tilde.
     """
-    from urllib.parse import parse_qs
-
     kv: dict = {}
     body = (body or "").strip()
     if not body:
@@ -1019,7 +1001,17 @@ def _parse_device_kv(body: str) -> dict:
     return kv
 
 
-def _store_device_capabilities(sn: str, body: str) -> None:
+def _parse_item_lines(lines: list) -> dict:
+    """One `key=value` per line, as INFO sends them; values may contain commas."""
+    kv = {}
+    for line in lines:
+        key, sep, value = line.strip().lstrip("~").partition("=")
+        if sep and key:
+            kv[key.strip()] = value.strip()
+    return kv
+
+
+def _store_device_capabilities(sn: str, body: str, kv: dict | None = None) -> None:
     """Parse a registry or table=options body and store capability fields on the device.
 
     Captures firmware, MAC, max users, the fingerprint algorithm version (fp_version —
@@ -1028,7 +1020,8 @@ def _store_device_capabilities(sn: str, body: str) -> None:
     """
     if not sn:
         return
-    kv = _parse_device_kv(body)
+    if kv is None:
+        kv = _parse_device_kv(body)
     updates: dict = {}
 
     fw = kv.get("FWVersion") or kv.get("FirmVer")

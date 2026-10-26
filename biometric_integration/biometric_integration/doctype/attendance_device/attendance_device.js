@@ -270,7 +270,7 @@ frappe.ui.form.on('Attendance Device', {
 							`<div class="text-center py-3">
 								<div class="text-primary mb-1" style="font-size:2rem;">&#8505;</div>
 								<b>${__('Refresh Device Info command sent')}</b>
-								<div class="text-muted small mt-2">${__('On its next poll the device reports its firmware and fingerprint algorithm version. Reload this device after a few seconds to see the Capabilities fields update.')}</div>
+								<div class="text-muted small mt-2">${__('On its next poll the device reports its configuration (firmware, fingerprint version, time zone and more). The full reply is on the command under View Commands; the Capabilities fields here update from it.')}</div>
 							</div>`
 						);
 						setTimeout(() => { d.hide(); frm.reload_doc(); }, 4000);

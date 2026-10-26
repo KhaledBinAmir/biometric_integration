@@ -171,7 +171,7 @@
    "fieldtype": "Int",
    "label": "Fingerprint Algorithm Version",
    "read_only": 1,
-   "description": "ZKTeco FP algorithm version (e.g. 10). Templates only transfer between devices sharing the same version \u2014 populated automatically from device options (Refresh Device Info)."
+   "description": "ZKTeco FP algorithm version (e.g. 10). Templates only transfer between devices sharing the same version \u2014 populated automatically from what the device reports when it registers and on Refresh Device Info."
   },
   {
    "fieldname": "fp_version_override",

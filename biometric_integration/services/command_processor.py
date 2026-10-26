@@ -224,27 +224,17 @@ def process_device_command(device_sn: str) -> Optional[Union[str, dict]]:
         return f"C:{cmd_doc.name}:DATA QUERY ATTLOG StartTime={start_s}\tEndTime={end_s}"
 
     if cmd_doc.command_type == "Refresh Device Info":
-        # Read-only capability probe. ZKTeco answers a `GET OPTIONS <keys>` by
-        # POSTing the requested option values back (to /iclock/cdata?table=options
-        # or /iclock/querydata?type=options depending on firmware); both paths land
-        # in _store_device_capabilities, which updates fp_version / firmware_version
-        # / supported_biometrics on the device. Safe against a live device — it does
-        # NOT touch enrolled users or templates. Done-on-send: the option upload is
-        # asynchronous and (on most firmware) carries no cmdid to correlate back, so
-        # we can't tie the eventual values to this command row.
+        # Read-only. ZKTeco answers INFO by posting all of its configuration items
+        # to /iclock/devicecmd (HTTPPUSH spec, command 4: firmware, model, FP
+        # version, time zone and the rest). The command stays Sent until then; the
+        # adapter keeps the whole reply on the command and reads the capability
+        # fields out of it. GET OPTIONS was used before: this fleet's firmware
+        # acknowledges it but returns no values (2026-07-06).
         brand = frappe.db.get_value("Attendance Device", device_sn, "brand")
         if brand != "ZKTeco":
             _finish(cmd_doc, "Failed", "Refresh Device Info is only supported for ZKTeco devices.")
             return None
-        _finish(
-            cmd_doc,
-            "Success",
-            "Sent: GET OPTIONS (device reports fp/firmware/bio capabilities asynchronously)",
-        )
-        # Request exactly the option keys _store_device_capabilities knows how to
-        # parse. ~ prefix marks read-only/optional options in the ADMS spec.
-        keys = "~ZKFPVersion,~ZKFaceVersion,FirmVer,~DeviceName,MAC,~MaxUserCount,FaceFunOn,FingerFunOn,FvFunOn,PvFunOn"
-        return f"C:{cmd_doc.name}:GET OPTIONS {keys}"
+        return f"C:{cmd_doc.name}:INFO"
 
     if cmd_doc.command_type == "Pull From Device":
         # Brand-agnostic "capture everything off this device" — pulls each user AND
