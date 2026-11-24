@@ -204,12 +204,22 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             _store_device_capabilities(sn, body_str)
             return self.text("OK")
         if table == "tabledata":
-            # Unified template (biodata) upload via cdata. Some firmware answers a
-            # biodata DATA QUERY here instead of via /iclock/querydata.
+            # Bulk upload (user, biodata, biophoto, userpic...). ZKTeco expects the
+            # server to echo the uploaded table name and record count back as
+            # "<tablename>=<count>". A different key (for example "biophoto=" for a
+            # biodata upload) is treated as a failed upload and the terminal
+            # re-sends the same batch indefinitely.
+            #
+            # Some firmware answers a biodata DATA QUERY here instead of via
+            # /iclock/querydata, so the body still goes through the biodata parser.
             tablename = args.get("tablename", "")
+            if not tablename:
+                return self.text("OK")
+            count = args.get("count")
             if tablename.lower() == "biodata":
-                n = _process_biodata_records(sn, body_str)
-                return self.text(f"biophoto={n}")
+                parsed = _process_biodata_records(sn, body_str)
+                count = count or parsed
+            return self.text(f"{tablename}={count or 0}")
         # rtstate and other tables — acknowledge
         return self.text("OK")
 
