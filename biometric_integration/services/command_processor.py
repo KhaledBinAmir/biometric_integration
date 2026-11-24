@@ -330,7 +330,7 @@ def _zk_passwd(user_doc, fallback: str = "") -> str:
 def _zkteco(cmd_doc: Any, user_doc: Any) -> Optional[str]:
     cmd_id = cmd_doc.name
     pin = user_doc.user_id
-    name = user_doc.employee_name or ""
+    name = user_doc.employee_name or user_doc.device_user_name or ""
 
     if cmd_doc.command_type == "Delete User":
         return f"C:{cmd_id}:DATA DELETE USERINFO PIN={pin}"
@@ -549,7 +549,7 @@ def _ebkn(cmd_doc: Any, user_doc: Any) -> Optional[dict]:
             "trans_id": cmd_doc.name,
             "cmd_code": "SET_USER_PROFILE",
             "body": json.dumps(
-                {"user_id": uid, "user_name": user_doc.employee_name or "", "privilege": _ebkn_pri(user_doc)}
+                {"user_id": uid, "user_name": user_doc.employee_name or user_doc.device_user_name or "", "privilege": _ebkn_pri(user_doc)}
             ),
         }
 

@@ -7,6 +7,8 @@
  "engine": "InnoDB",
  "field_order": [
   "user_id",
+  "device_user_name",
+  "display_name",
   "employee",
   "employee_name",
   "privilege",
@@ -24,10 +26,26 @@
   {
    "fieldname": "user_id",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Device PIN / User ID",
    "reqd": 1,
    "unique": 1,
    "description": "The employee ID as stored on the device (PIN for ZKTeco, user_id for EBKN)"
+  },
+  {
+   "fieldname": "device_user_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Name on Device",
+   "read_only": 1,
+   "description": "The name the user was given on the biometric device. Reported by the device itself; this is not the ERP employee name."
+  },
+  {
+   "fieldname": "display_name",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Display Name",
+   "read_only": 1
   },
   {
    "fieldname": "employee",
@@ -35,8 +53,10 @@
    "in_list_view": 1,
    "label": "Employee",
    "options": "Employee",
+   "read_only": 1,
    "search_index": 1,
-   "unique": 1
+   "unique": 1,
+   "description": "Derived from the Employee whose Attendance Device ID is this PIN, which is what the check-in lookup reads. Set or clear the PIN on the Employee."
   },
   {
    "fetch_from": "employee.employee_name",
@@ -128,9 +148,10 @@
    "write": 1
   }
  ],
+ "search_fields": "user_id,device_user_name,employee_name",
  "show_title_field_in_link": 1,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "title_field": "employee_name"
+ "title_field": "display_name"
 }
