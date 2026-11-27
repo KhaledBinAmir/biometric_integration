@@ -24,16 +24,32 @@ _BRAND_BLOB_FIELD: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 def get_or_create_user_by_pin(pin: str, name: Optional[str] = None) -> "AttendanceDeviceUser":
-    """Return an AttendanceDeviceUser by PIN, creating one if it does not exist."""
+    """Return an AttendanceDeviceUser by PIN, creating one if it does not exist.
+
+    ``name`` is the name the device reports for the user (the one typed on the
+    terminal). It is stored in ``device_user_name`` and kept separate from
+    ``employee_name``, which is the linked ERPNext Employee's name.
+    """
     if not pin:
         raise ValueError("PIN cannot be empty.")
     doc_name = frappe.db.exists("Attendance Device User", {"user_id": pin})
     if doc_name:
-        return frappe.get_doc("Attendance Device User", doc_name)
+        doc = frappe.get_doc("Attendance Device User", doc_name)
+        if name and (doc.device_user_name or "") != name:
+            # db_set, not save(): this runs for every USER line of a replay, and
+            # a rename the device reported is not an edit that should re-enter the
+            # doctype's sync hooks. The request handler commits; this must not.
+            doc.db_set("device_user_name", name, update_modified=False)
+            doc.db_set(
+                "display_name",
+                (name or doc.employee_name or doc.user_id or "").strip(),
+                update_modified=False,
+            )
+        return doc
     doc = frappe.new_doc("Attendance Device User")
     doc.user_id = pin
-    if name:
-        doc.employee_name = name
+    doc.device_user_name = name or None
+    doc.display_name = (name or pin or "").strip()
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
     return doc
@@ -245,6 +261,9 @@ def _write_enrollment_file(
 # ---------------------------------------------------------------------------
 
 class AttendanceDeviceUser(Document):
+    def validate(self):
+        self.set_display_name()
+
     def after_insert(self):
         _trigger_sync(self, is_new=True)
 
@@ -255,6 +274,20 @@ class AttendanceDeviceUser(Document):
         for device_id, brand in _get_user_devices(self).items():
             add_command(device_id, self.name, brand, "Delete User")
         frappe.db.commit()
+
+    def set_display_name(self) -> None:
+        """Title = device name, falling back to the linked employee, then the PIN."""
+        if self.employee:
+            self.employee_name = (
+                frappe.db.get_value("Employee", self.employee, "employee_name")
+                or self.employee_name
+            )
+        else:
+            # Do not leave a stale employee name behind after unmapping.
+            self.employee_name = None
+        self.display_name = (
+            self.device_user_name or self.employee_name or self.user_id or ""
+        ).strip()
 
 
 # ---------------------------------------------------------------------------

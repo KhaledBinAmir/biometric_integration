@@ -216,7 +216,10 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
             if not tablename:
                 return self.text("OK")
             count = args.get("count")
-            if tablename.lower() == "biodata":
+            if tablename.lower() == "user":
+                parsed = _process_user_records(sn, body_str)
+                count = count or parsed
+            elif tablename.lower() == "biodata":
                 parsed = _process_biodata_records(sn, body_str)
                 count = count or parsed
             return self.text(f"{tablename}={count or 0}")
@@ -513,6 +516,75 @@ class ZKTecoAdapter(AbstractDeviceAdapter):
 # ZKTeco privilege byte -> Attendance Device User.privilege label. Mirrors
 # _ZK_PRI in services/command_processor.py, which maps the label back for pushes.
 _ZK_PRI_LABEL = {0: "Normal User", 2: "Enroller", 6: "Admin", 14: "Super Admin"}
+
+
+def _process_user_records(sn: str, body: str) -> int:
+    """Ingest a `tabledata&tablename=user` push.
+
+    The terminal sends the name it has on the keypad here. Store it in
+    ``device_user_name`` (kept separate from the linked Employee's name) so the
+    ERPNext list shows exactly what the device shows.
+    """
+    processed = 0
+    for line in body.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        data = _parse_kv_tsv(line) if "\t" in line else _parse_kv(line)
+        pin = (
+            data.get("pin")
+            or data.get("PIN")
+            or data.get("uid")
+            or data.get("UserID")
+        )
+        if not pin:
+            continue
+        try:
+            name = data.get("name") or data.get("Name") or data.get("username")
+            user_doc = get_or_create_user_by_pin(pin, name)
+            changed = False
+
+            # The tabledata rows this firmware sends are lowercase
+            # (``privilege=14``); the classic spelling is ``Pri``.
+            pri = (
+                data.get("pri")
+                or data.get("Pri")
+                or data.get("privilege")
+                or data.get("Privilege")
+            )
+            if pri is not None and str(pri).strip() != "":
+                level = _ZK_PRI_LABEL.get(cint(pri))
+                if level and user_doc.get("privilege") != level:
+                    user_doc.privilege = level
+                    changed = True
+
+            if sn and not any(
+                row.attendance_device == sn for row in user_doc.get("devices", [])
+            ):
+                brand = frappe.db.get_value("Attendance Device", sn, "brand")
+                if brand:
+                    user_doc.append(
+                        "devices",
+                        {
+                            "attendance_device": sn,
+                            "brand": brand,
+                            "enroll_data_source": 0,
+                        },
+                    )
+                    changed = True
+
+            # Frappe 16 has no Document.is_dirty(); track the change here so a
+            # privilege or device-link update is saved instead of lost.
+            if changed:
+                user_doc.save(ignore_permissions=True)
+            processed += 1
+        except Exception as exc:
+            frappe.log_error(
+                title="ZKTeco tabledata User Parse Error",
+                message=f"SN={sn} Line: {line!r}\n{exc}",
+            )
+    frappe.db.commit()
+    return processed
 
 
 def _handle_operlog_user(sn: str, line: str) -> int:
